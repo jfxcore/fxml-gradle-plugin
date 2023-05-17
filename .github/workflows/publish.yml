@@ -1,0 +1,77 @@
+name: CI publish
+
+on:
+  push:
+    branches:
+      - 'master'
+    tags:
+      - '*'
+
+jobs:
+  validation:
+    name: "Gradle Wrapper Validation"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: gradle/wrapper-validation-action@v1
+
+  build:
+    name: Build and publish
+    needs: validation
+    runs-on: ubuntu-latest
+    env:
+      SNAPSHOT_BUILD: ${{ github.ref == 'refs/heads/master' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v3
+
+      - name: Set up Java
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'zulu'
+          java-version: '17.0.1'
+
+      - name: Get tag name
+        id: tagName
+        uses: little-core-labs/get-git-tag@v3.0.1
+        if: ${{ env.SNAPSHOT_BUILD == 'false' }}
+
+      - name: Choose repository
+        id: remoteRepository
+        run: echo ::set-output name=location::$([ "${{ github.ref }}" = "refs/heads/master" ] && echo "${SNAPSHOT}" || echo "${STAGING}")
+        env:
+          SNAPSHOT: https://oss.sonatype.org/content/repositories/snapshots
+          STAGING: https://oss.sonatype.org/service/local/staging/deploy/maven2
+
+      - name: Configure GPG
+        run: |
+          cat <<EOT >> ./gpgkey
+          ${{ secrets.SIGNING_KEY }}
+          EOT
+          gpg --batch --import ./gpgkey
+          gpg --pinentry-mode=loopback --passphrase ${{ secrets.SIGNING_PASSWORD }} --export-secret-keys > ~/.gnupg/secring.gpg
+
+      - name: Set up Gradle properties
+        run: |
+          cat <<EOT >> ./gradle.properties
+          signing.keyId=${{ secrets.SIGNING_KEYNAME }}
+          signing.password=${{ secrets.SIGNING_PASSWORD }}
+          signing.secretKeyRingFile=$HOME/.gnupg/secring.gpg
+          EOT
+
+      - name: Build snapshot
+        run: ./gradlew publish -x test -PREPOSITORY_URL=${URL} -PREPOSITORY_USERNAME=${USERNAME} -PREPOSITORY_PASSWORD=${PASSWORD}
+        if: ${{ env.SNAPSHOT_BUILD == 'true' }}
+        env:
+          VERSION: ${{ steps.tagName.outputs.tag }}
+          URL: ${{ steps.remoteRepository.outputs.location }}
+          USERNAME: ${{ secrets.SONATYPE_USERNAME }}
+          PASSWORD: ${{ secrets.SONATYPE_PASSWORD }}
+
+      - name: Build release
+        run: ./gradlew publishPlugins -x test -PTAG_VERSION=${VERSION} -Pgradle.publish.key=${PLUGIN_KEY} -Pgradle.publish.secret=${PLUGIN_SECRET}
+        if: ${{ env.SNAPSHOT_BUILD == 'false' }}
+        env:
+          VERSION: ${{ steps.tagName.outputs.tag }}
+          PLUGIN_KEY: ${{ secrets.GRADLE_PLUGIN_PORTAL_KEY }}
+          PLUGIN_SECRET: ${{ secrets.GRADLE_PLUGIN_PORTAL_SECRET }}

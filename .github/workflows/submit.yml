@@ -1,0 +1,35 @@
+name: CI tests
+
+on:
+  push:
+    branches-ignore:
+      - master
+      - main
+      - 'WIP*'
+
+jobs:
+  validation:
+    name: "Gradle Wrapper Validation"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: gradle/wrapper-validation-action@v1
+
+  build:
+    name: Build and test
+    needs: validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v2
+        with:
+          distribution: 'zulu'
+          java-version: '17.0.1'
+
+      - name: Run Gradle build
+        run: ./gradlew build check

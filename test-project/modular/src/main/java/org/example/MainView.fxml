@@ -1,0 +1,6 @@
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.shape.*?>
+
+<Pane xmlns="http://jfxcore.org/javafx" xmlns:fx="http://jfxcore.org/fxml" fx:class="org.example.MainView">
+    <Rectangle width="100" height="200" fill="RED"/>
+</Pane>
