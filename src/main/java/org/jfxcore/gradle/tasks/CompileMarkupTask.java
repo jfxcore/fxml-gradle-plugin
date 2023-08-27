@@ -3,42 +3,35 @@
 
 package org.jfxcore.gradle.tasks;
 
-import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
-import org.gradle.api.provider.Property;
-import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.TaskAction;
 import org.jfxcore.gradle.compiler.CompilerService;
-import org.jfxcore.gradle.PathHelper;
 
-public abstract class CompileMarkupTask extends DefaultTask {
+public abstract class CompileMarkupTask extends MarkupTask {
 
-    public static final String NAME = "compileMarkup";
-
-    @Internal
-    public abstract Property<CompilerService> getCompilerService();
+    public static final String VERB = "compile";
 
     @TaskAction
     public void compile() {
-        CompilerService compilerService = getCompilerService().get();
+        CompilerService compilerService = CompilerService.get(getProject());
+        SourceSet sourceSet = getSourceSet().get();
 
         try {
-            for (SourceSet sourceSet : new PathHelper(getProject()).getSourceSets()) {
-                var compiler = compilerService.getCompiler(sourceSet);
-                if (compiler == null) {
-                    throw new GradleException(
-                        String.format(":%s cannot be run in isolation, please run :%s first",
-                            NAME, ProcessMarkupTask.NAME));
-                }
-
-                compiler.compileFiles();
+            var compiler = compilerService.getCompiler(sourceSet);
+            if (compiler == null) {
+                throw new GradleException(String.format(
+                    ":%s cannot be run in isolation, please run :%s first",
+                    getName(), sourceSet.getTaskName(ProcessMarkupTask.VERB, TARGET)));
             }
+
+            compiler.compileFiles();
         } catch (GradleException ex) {
             throw ex;
         } catch (RuntimeException ex) {
-            if (compilerService.getExceptionHelper().isMarkupException(ex)) {
-                getProject().getLogger().error(compilerService.getExceptionHelper().format(ex));
+            var exceptionHelper = compilerService.getCompiler(sourceSet).getExceptionHelper();
+            if (exceptionHelper.isMarkupException(ex)) {
+                getProject().getLogger().error(exceptionHelper.format(ex));
             } else {
                 throw ex;
             }

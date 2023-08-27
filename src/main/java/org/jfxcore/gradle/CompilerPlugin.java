@@ -3,17 +3,14 @@
 
 package org.jfxcore.gradle;
 
+import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
-import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
-import org.gradle.api.tasks.TaskCollection;
-import org.gradle.api.tasks.compile.GroovyCompile;
-import org.gradle.api.tasks.compile.JavaCompile;
-import org.gradle.api.tasks.scala.ScalaCompile;
 import org.jfxcore.gradle.compiler.CompilerService;
 import org.jfxcore.gradle.tasks.CompileMarkupTask;
+import org.jfxcore.gradle.tasks.MarkupTask;
 import org.jfxcore.gradle.tasks.ProcessMarkupTask;
 
 public class CompilerPlugin implements Plugin<Project> {
@@ -27,43 +24,39 @@ public class CompilerPlugin implements Plugin<Project> {
             sourceSet.getJava().srcDir(pathHelper.getGeneratedSourcesDir(sourceSet));
         }
 
+        // Register the CompilerService for this build, which is used by the plugin tasks.
+        project.getGradle()
+            .getSharedServices()
+            .registerIfAbsent(CompilerService.class.getName(), CompilerService.class, spec -> {});
+
         // Configure parseMarkup to run before, and compileMarkup to run after the source code is compiled.
         project.afterEvaluate(p -> {
-            var provider = createProvider(project);
-            Task processMarkup = project.getTasks().create(ProcessMarkupTask.NAME,
-                ProcessMarkupTask.class, task -> task.getCompilerService().set(provider));
-            Task compileMarkup = project.getTasks().create(CompileMarkupTask.NAME,
-                CompileMarkupTask.class, task -> task.getCompilerService().set(provider));
+            for (SourceSet sourceSet : pathHelper.getSourceSets()) {
+                String classesTaskName = sourceSet.getClassesTaskName();
+                Task classesTask = project.getTasksByName(classesTaskName, false).stream()
+                    .findFirst()
+                    .orElseThrow(() -> new GradleException("Task not found: " + classesTaskName));
 
-            TaskCollection<JavaCompile> javaCompileTasks = project.getTasks().withType(JavaCompile.class);
-            TaskCollection<GroovyCompile> groovyCompileTasks = project.getTasks().withType(GroovyCompile.class);
-            TaskCollection<ScalaCompile> scalaCompileTasks = project.getTasks().withType(ScalaCompile.class);
-            TaskCollection<?> kotlinCompileTasks = null;
+                String processMarkupTaskName = sourceSet.getTaskName(ProcessMarkupTask.VERB, MarkupTask.TARGET);
+                Task processMarkupTask = project.getTasks().create(processMarkupTaskName,
+                    ProcessMarkupTask.class, task -> task.getSourceSet().set(sourceSet));
 
-            try {
-                var kotlinCompileClass = Class.forName("org.jetbrains.kotlin.gradle.tasks.KotlinCompile");
-                kotlinCompileTasks = project.getTasks().matching(kotlinCompileClass::isInstance);
-            } catch (ClassNotFoundException ignored) {
-            }
+                String compileMarkupTaskName = sourceSet.getTaskName(CompileMarkupTask.VERB, MarkupTask.TARGET);
+                Task compileMarkupTask = project.getTasks().create(compileMarkupTaskName,
+                    CompileMarkupTask.class, task -> task.getSourceSet().set(sourceSet));
 
-            for (TaskCollection<?> collection : new TaskCollection[] {
-                    javaCompileTasks, groovyCompileTasks, scalaCompileTasks, kotlinCompileTasks}) {
-                if (collection != null) {
-                    for (Task task : collection) {
-                        task.dependsOn(processMarkup);
-                        task.finalizedBy(compileMarkup);
-                        compileMarkup.dependsOn(task);
+                for (String compileTarget : new String[] { "Java", "Kotlin", "Scala", "Groovy" }) {
+                    String compileTaskName = sourceSet.getTaskName("compile", compileTarget);
+                    Task compileTask = project.getTasks().findByName(compileTaskName);
+
+                    if (compileTask != null) {
+                        compileTask.dependsOn(processMarkupTask);
+                        compileMarkupTask.dependsOn(compileTask);
+                        classesTask.dependsOn(compileMarkupTask);
                     }
                 }
             }
         });
-    }
-
-    private Provider<CompilerService> createProvider(Project project) {
-        return project.getGradle().getSharedServices()
-            .registerIfAbsent(
-                "compilerService:" + project.getName(), CompilerService.class,
-                spec -> spec.getParameters().getCompileClasspath().set(new PathHelper(project).getCompileClasspath()));
     }
 
 }
