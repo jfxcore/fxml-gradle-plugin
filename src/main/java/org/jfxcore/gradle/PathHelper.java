@@ -14,7 +14,6 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.function.Predicate;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public final class PathHelper {
@@ -33,12 +32,6 @@ public final class PathHelper {
 
     public Set<SourceSet> getSourceSets() {
         return project.getExtensions().getByType(JavaPluginExtension.class).getSourceSets();
-    }
-
-    public Set<File> getCompileClasspath() {
-        return getSourceSets().stream()
-            .flatMap(sourceSet -> sourceSet.getCompileClasspath().getFiles().stream())
-            .collect(Collectors.toSet());
     }
 
     public Iterable<Path> enumerateFiles(Path basePath, Predicate<Path> filter) throws IOException {

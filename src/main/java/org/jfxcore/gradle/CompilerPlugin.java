@@ -7,11 +7,13 @@ import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
+import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.tasks.SourceSet;
 import org.jfxcore.gradle.compiler.CompilerService;
 import org.jfxcore.gradle.tasks.CompileMarkupTask;
 import org.jfxcore.gradle.tasks.MarkupTask;
 import org.jfxcore.gradle.tasks.ProcessMarkupTask;
+import java.util.List;
 
 public class CompilerPlugin implements Plugin<Project> {
 
@@ -24,13 +26,20 @@ public class CompilerPlugin implements Plugin<Project> {
             sourceSet.getJava().srcDir(pathHelper.getGeneratedSourcesDir(sourceSet));
         }
 
-        // Register the CompilerService for this build, which is used by the plugin tasks.
-        project.getGradle()
-            .getSharedServices()
-            .registerIfAbsent(CompilerService.class.getName(), CompilerService.class, spec -> {});
+        // Register the CompilerService for this project, which is used by the plugin tasks.
+        CompilerService.register(project);
 
         // Configure parseMarkup to run before, and compileMarkup to run after the source code is compiled.
         project.afterEvaluate(p -> {
+            List<Task> dependentJarTasks =  project.getConfigurations().stream()
+                .flatMap(dep -> dep.getDependencies().stream())
+                .filter(dep -> dep instanceof ProjectDependency)
+                .map(dep -> (ProjectDependency)dep)
+                .map(ProjectDependency::getDependencyProject)
+                .distinct()
+                .flatMap(dp -> dp.getTasksByName("jar", false).stream())
+                .toList();
+
             for (SourceSet sourceSet : pathHelper.getSourceSets()) {
                 String classesTaskName = sourceSet.getClassesTaskName();
                 Task classesTask = project.getTasksByName(classesTaskName, false).stream()
@@ -39,14 +48,20 @@ public class CompilerPlugin implements Plugin<Project> {
 
                 String processMarkupTaskName = sourceSet.getTaskName(ProcessMarkupTask.VERB, MarkupTask.TARGET);
                 Task processMarkupTask = project.getTasks().create(processMarkupTaskName,
-                    ProcessMarkupTask.class, task -> task.getSourceSet().set(sourceSet));
+                    ProcessMarkupTask.class, task -> {
+                        task.getSourceSet().set(sourceSet);
+
+                        for (Task jarTask : dependentJarTasks) {
+                            task.dependsOn(jarTask);
+                        }
+                    });
 
                 String compileMarkupTaskName = sourceSet.getTaskName(CompileMarkupTask.VERB, MarkupTask.TARGET);
                 Task compileMarkupTask = project.getTasks().create(compileMarkupTaskName,
                     CompileMarkupTask.class, task -> task.getSourceSet().set(sourceSet));
 
-                for (String compileTarget : new String[] { "Java", "Kotlin", "Scala", "Groovy" }) {
-                    String compileTaskName = sourceSet.getTaskName("compile", compileTarget);
+                for (String target : new String[] { "java", "kotlin", "scala", "groovy" }) {
+                    String compileTaskName = sourceSet.getTaskName("compile", target);
                     Task compileTask = project.getTasks().findByName(compileTaskName);
 
                     if (compileTask != null) {
