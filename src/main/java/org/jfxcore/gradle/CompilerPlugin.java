@@ -104,20 +104,18 @@ public class CompilerPlugin implements Plugin<Project> {
 
     private void configureTaskDependenciesForSourceSet(
             Project project, SourceSet sourceSet, List<Task> dependentJarTasks) {
-        String processMarkupTaskName = sourceSet.getTaskName(ProcessMarkupTask.VERB, MarkupTask.TARGET);
-        Task processMarkupTask = project.getTasks().create(processMarkupTaskName, ProcessMarkupTask.class, task -> {
+        Task processMarkupTask = project.getTasks().create(
+            sourceSet.getTaskName(ProcessMarkupTask.VERB, MarkupTask.TARGET), ProcessMarkupTask.class, task -> {
+                for (Task jarTask : dependentJarTasks) {
+                    task.dependsOn(jarTask);
+                }
+            });
 
-
-            for (Task jarTask : dependentJarTasks) {
-                task.dependsOn(jarTask);
-            }
-        });
-
-        String compileMarkupTaskName = sourceSet.getTaskName(CompileMarkupTask.VERB, MarkupTask.TARGET);
-        Task compileMarkupTask = project.getTasks().create(compileMarkupTaskName, CompileMarkupTask.class, task -> {
-            task.getSourceSet().set(sourceSet);
-            task.onlyIf(spec -> processMarkupTask.getDidWork());
-        });
+        Task compileMarkupTask = project.getTasks().create(
+            sourceSet.getTaskName(CompileMarkupTask.VERB, MarkupTask.TARGET), CompileMarkupTask.class, task -> {
+                task.getSourceSet().set(sourceSet);
+                task.onlyIf(spec -> processMarkupTask.getDidWork());
+            });
 
         Task classesTask = getTask(project, sourceSet.getClassesTaskName());
 
