@@ -12,6 +12,7 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.URL;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -23,14 +24,14 @@ public class Compiler implements AutoCloseable {
     private static final String LOGGER_NAME = "org.jfxcore.compiler.Logger";
 
     private final Object compilerInstance;
-    private final Method parseFilesMethod;
-    private final Method generateSourcesMethod;
+    private final Method addFileMethod;
+    private final Method processFilesMethod;
     private final Method compileFilesMethod;
     private final CompilerClassLoader classLoader;
     private final ExceptionHelper exceptionHelper;
 
-    public Compiler(Set<File> classpath, Logger logger) throws Exception {
-        List<URL> urls = new ArrayList<>(classpath.stream().map(file -> {
+    public Compiler(File generatedSourcesDir, Set<File> searchPath, Logger logger) throws Exception {
+        List<URL> urls = new ArrayList<>(searchPath.stream().map(file -> {
             try {
                 return new URL("file", null, file.getCanonicalPath());
             } catch (IOException e) {
@@ -71,11 +72,11 @@ public class Compiler implements AutoCloseable {
             });
 
         compilerInstance = Class.forName(COMPILER_NAME, true, classLoader)
-            .getConstructor(Set.class, compilerLoggerClass)
-            .newInstance(classpath, compilerLogger);
+            .getConstructor(Path.class, Set.class, compilerLoggerClass)
+            .newInstance(generatedSourcesDir.toPath(), searchPath, compilerLogger);
 
-        parseFilesMethod = compilerInstance.getClass().getMethod("parseFiles", File.class);
-        generateSourcesMethod = compilerInstance.getClass().getMethod("generateSources", File.class);
+        addFileMethod = compilerInstance.getClass().getMethod("addFile", Path.class, Path.class);
+        processFilesMethod = compilerInstance.getClass().getMethod("processFiles");
         compileFilesMethod = compilerInstance.getClass().getMethod("compileFiles");
     }
 
@@ -88,17 +89,17 @@ public class Compiler implements AutoCloseable {
         return exceptionHelper;
     }
 
-    public void parseFiles(File sourceDir) throws Throwable {
+    public Path addFile(File sourceDir, File sourceFile) throws Throwable {
         try {
-            parseFilesMethod.invoke(compilerInstance, sourceDir);
+            return (Path)addFileMethod.invoke(compilerInstance, sourceDir.toPath(), sourceFile.toPath());
         } catch (InvocationTargetException ex) {
             throw ex.getCause();
         }
     }
 
-    public void generateSources(File generatedSourcesDir) throws Throwable {
+    public void processFiles() throws Throwable {
         try {
-            generateSourcesMethod.invoke(compilerInstance, generatedSourcesDir);
+            processFilesMethod.invoke(compilerInstance);
         } catch (InvocationTargetException ex) {
             throw ex.getCause();
         }

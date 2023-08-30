@@ -3,6 +3,9 @@
 
 package org.jfxcore.gradle.compiler;
 
+import org.gradle.api.GradleException;
+import org.gradle.api.Project;
+import org.gradle.api.tasks.SourceSet;
 import java.io.File;
 
 public class ExceptionHelper {
@@ -34,14 +37,40 @@ public class ExceptionHelper {
 
             return String.format("%s:%s: %s", sourceFile != null ? sourceFile.toString() : "<null>", line + 1, message);
         } catch (ReflectiveOperationException ex2) {
-            sneakyThrow(ex2);
+            throwUnchecked(ex2);
             return null;
         }
     }
 
     @SuppressWarnings("unchecked")
-    public static <E extends Throwable> void sneakyThrow(Throwable e) throws E {
+    private static <E extends Throwable> void throwUnchecked(Throwable e) throws E {
         throw (E)e;
+    }
+
+    @FunctionalInterface
+    public interface RunnableEx {
+        void run() throws Throwable;
+    }
+
+    public static void run(Project project, SourceSet sourceSet, RunnableEx runnable) {
+        try {
+            runnable.run();
+        } catch (GradleException ex) {
+            throw ex;
+        } catch (RuntimeException ex) {
+            var exceptionHelper = CompilerService.get(project).getCompiler(sourceSet).getExceptionHelper();
+            if (exceptionHelper.isMarkupException(ex)) {
+                project.getLogger().error(exceptionHelper.format(ex));
+            } else {
+                throw ex;
+            }
+
+            throw new GradleException("Compilation failed; see the compiler error output for details.");
+        } catch (Throwable ex) {
+            String message = ex.getMessage();
+            throw new GradleException(
+                message == null || message.isEmpty() ? "Internal compiler error" : message, ex);
+        }
     }
 
 }

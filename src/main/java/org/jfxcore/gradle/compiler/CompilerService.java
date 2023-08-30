@@ -3,6 +3,7 @@
 
 package org.jfxcore.gradle.compiler;
 
+import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.services.BuildService;
@@ -43,12 +44,18 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
         }
     }
 
-    public final synchronized Compiler newCompiler(SourceSet sourceSet, Logger logger) throws Exception {
-        Set<File> classpath = new HashSet<>();
-        classpath.addAll(sourceSet.getOutput().getFiles());
-        classpath.addAll(sourceSet.getCompileClasspath().getFiles());
+    public final synchronized Compiler newCompiler(SourceSet sourceSet, File generatedSourcesDir, Logger logger)
+            throws Exception {
+        if (compilers.containsKey(sourceSet)) {
+            throw new GradleException(
+                String.format("Compiler already exists for source set '%s'", sourceSet.getName()));
+        }
 
-        Compiler instance = new Compiler(classpath, logger);
+        Set<File> searchPath = new HashSet<>();
+        searchPath.addAll(sourceSet.getOutput().getFiles());
+        searchPath.addAll(sourceSet.getCompileClasspath().getFiles());
+
+        Compiler instance = new Compiler(generatedSourcesDir, searchPath, logger);
         compilers.put(sourceSet, instance);
         return instance;
     }
