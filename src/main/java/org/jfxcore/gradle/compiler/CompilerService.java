@@ -3,12 +3,14 @@
 
 package org.jfxcore.gradle.compiler;
 
+import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.services.BuildService;
 import org.gradle.api.services.BuildServiceParameters;
 import org.gradle.api.tasks.SourceSet;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Map;
@@ -37,23 +39,41 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
     }
 
     @Override
-    public final void close() throws Exception {
-        for (Compiler compiler : compilers.values()) {
+    public final void close() {
+        // Make a copy of the compiler list because it will be modified by calling 'close'.
+        for (Compiler compiler : new ArrayList<>(compilers.values())) {
             compiler.close();
         }
     }
 
-    public final synchronized Compiler newCompiler(SourceSet sourceSet, Logger logger) throws Exception {
-        Set<File> classpath = new HashSet<>();
-        classpath.addAll(sourceSet.getOutput().getFiles());
-        classpath.addAll(sourceSet.getCompileClasspath().getFiles());
+    public final Compiler newCompiler(SourceSet sourceSet, File generatedSourcesDir, Logger logger) {
+        if (compilers.containsKey(sourceSet)) {
+            throw new GradleException(
+                String.format("Compiler already exists for source set '%s'", sourceSet.getName()));
+        }
 
-        Compiler instance = new Compiler(classpath, logger);
-        compilers.put(sourceSet, instance);
-        return instance;
+        Set<File> searchPath = new HashSet<>();
+        searchPath.addAll(sourceSet.getOutput().getFiles());
+        searchPath.addAll(sourceSet.getCompileClasspath().getFiles());
+
+        try {
+            Compiler compiler = new Compiler(generatedSourcesDir, searchPath, logger) {
+                @Override
+                public void close() {
+                    super.close();
+                    compilers.remove(sourceSet);
+                }
+            };
+
+            compilers.put(sourceSet, compiler);
+            return compiler;
+        } catch (ReflectiveOperationException ex) {
+            ExceptionHelper.throwUnchecked(ex);
+            throw new AssertionError();
+        }
     }
 
-    public final synchronized Compiler getCompiler(SourceSet sourceSet) {
+    public final Compiler getCompiler(SourceSet sourceSet) {
         return compilers.get(sourceSet);
     }
 

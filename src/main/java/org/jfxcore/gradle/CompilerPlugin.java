@@ -10,9 +10,12 @@ import org.gradle.api.Task;
 import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.tasks.SourceSet;
 import org.jfxcore.gradle.compiler.CompilerService;
-import org.jfxcore.gradle.tasks.CompileMarkupTask;
-import org.jfxcore.gradle.tasks.MarkupTask;
+import org.jfxcore.gradle.compiler.ExceptionHelper;
 import org.jfxcore.gradle.tasks.ProcessMarkupTask;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
 
 public class CompilerPlugin implements Plugin<Project> {
@@ -26,52 +29,84 @@ public class CompilerPlugin implements Plugin<Project> {
             sourceSet.getJava().srcDir(pathHelper.getGeneratedSourcesDir(sourceSet));
         }
 
-        // Register the CompilerService for this project, which is used by the plugin tasks.
         CompilerService.register(project);
+        project.afterEvaluate(this::configureTasks);
+    }
 
-        // Configure parseMarkup to run before, and compileMarkup to run after the source code is compiled.
-        project.afterEvaluate(p -> {
-            List<Task> dependentJarTasks =  project.getConfigurations().stream()
-                .flatMap(dep -> dep.getDependencies().stream())
-                .filter(dep -> dep instanceof ProjectDependency)
-                .map(dep -> (ProjectDependency)dep)
-                .map(ProjectDependency::getDependencyProject)
-                .distinct()
-                .flatMap(dp -> dp.getTasksByName("jar", false).stream())
-                .toList();
+    private void configureTasks(Project project) {
+        List<Task> dependentJarTasks =  project.getConfigurations().stream()
+            .flatMap(dep -> dep.getDependencies().stream())
+            .filter(dep -> dep instanceof ProjectDependency)
+            .map(dep -> (ProjectDependency)dep)
+            .map(ProjectDependency::getDependencyProject)
+            .distinct()
+            .flatMap(dp -> dp.getTasksByName("jar", false).stream())
+            .toList();
 
-            for (SourceSet sourceSet : pathHelper.getSourceSets()) {
-                String classesTaskName = sourceSet.getClassesTaskName();
-                Task classesTask = project.getTasksByName(classesTaskName, false).stream()
-                    .findFirst()
-                    .orElseThrow(() -> new GradleException("Task not found: " + classesTaskName));
+        for (SourceSet sourceSet : new PathHelper(project).getSourceSets()) {
+            configureTasksForSourceSet(project, sourceSet, dependentJarTasks);
+        }
+    }
 
-                String processMarkupTaskName = sourceSet.getTaskName(ProcessMarkupTask.VERB, MarkupTask.TARGET);
-                Task processMarkupTask = project.getTasks().create(processMarkupTaskName,
-                    ProcessMarkupTask.class, task -> {
-                        task.getSourceSet().set(sourceSet);
+    private void configureTasksForSourceSet(
+            Project project, SourceSet sourceSet, List<Task> dependentJarTasks) {
+        ProcessMarkupTask processMarkupTask = project.getTasks().create(
+            sourceSet.getTaskName(ProcessMarkupTask.VERB, ProcessMarkupTask.TARGET),
+            ProcessMarkupTask.class, task -> {
+                task.getSourceSet().set(sourceSet);
+                dependentJarTasks.forEach(task::dependsOn);
+            });
 
-                        for (Task jarTask : dependentJarTasks) {
-                            task.dependsOn(jarTask);
-                        }
-                    });
-
-                String compileMarkupTaskName = sourceSet.getTaskName(CompileMarkupTask.VERB, MarkupTask.TARGET);
-                Task compileMarkupTask = project.getTasks().create(compileMarkupTaskName,
-                    CompileMarkupTask.class, task -> task.getSourceSet().set(sourceSet));
-
-                for (String target : new String[] { "java", "kotlin", "scala", "groovy" }) {
-                    String compileTaskName = sourceSet.getTaskName("compile", target);
-                    Task compileTask = project.getTasks().findByName(compileTaskName);
-
-                    if (compileTask != null) {
-                        compileTask.dependsOn(processMarkupTask);
-                        compileMarkupTask.dependsOn(compileTask);
-                        classesTask.dependsOn(compileMarkupTask);
-                    }
+        // Run the FXML compiler at the end of compileJava's action list. This is important for
+        // incremental compilation: Gradle will fingerprint the compiled class files after the
+        // last task action is executed, i.e. after the FXML compiler has rewritten the bytecode.
+        getTask(project, sourceSet.getCompileJavaTaskName()).doLast(task ->
+            ExceptionHelper.run(project, CompilerService.get(project).getCompiler(sourceSet), compiler -> {
+                // We will only have a compiler if ProcessMarkupTask has run.
+                if (compiler == null) {
+                    return;
                 }
+
+                try {
+                    compiler.compileFiles();
+                } catch (Throwable ex) {
+                    // If the FXML compiler fails, we need to delete all generated Java files.
+                    // This ensures that ProcessMarkupTask is no longer up-to-date, and it will
+                    // regenerate the files on the next build, causing the FXML compiler to run
+                    // once again.
+                    for (File file : processMarkupTask.getGeneratedFiles()) {
+                        Path filePath = file.toPath();
+                        if (Files.exists(filePath)) {
+                            try {
+                                Files.delete(filePath);
+                            } catch (IOException ex2) {
+                                ex2.addSuppressed(ex);
+                                throw new GradleException("Cannot delete " + filePath, ex2);
+                            }
+                        }
+                    }
+
+                    throw ex;
+                } finally {
+                    compiler.close();
+                }
+            })
+        );
+
+        for (String target : new String[] { "java", "kotlin", "scala", "groovy" }) {
+            String compileTaskName = sourceSet.getTaskName("compile", target);
+            Task compileTask = project.getTasks().findByName(compileTaskName);
+            if (compileTask != null) {
+                compileTask.dependsOn(processMarkupTask);
             }
-        });
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private <T extends Task> T getTask(Project project, String name) {
+        return (T)project.getTasksByName(name, false).stream()
+            .findFirst()
+            .orElseThrow(() -> new GradleException("Task not found: " + name));
     }
 
 }

@@ -3,6 +3,7 @@
 
 package org.jfxcore.gradle;
 
+import org.gradle.api.GradleException;
 import org.gradle.api.Project;
 import org.gradle.api.plugins.JavaPluginExtension;
 import org.gradle.api.tasks.SourceSet;
@@ -10,13 +11,20 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 public final class PathHelper {
+
+    private static final String[] FXML_EXTENSIONS = new String[] { ".fxml", ".fxmlx" };
 
     private final Project project;
 
@@ -27,11 +35,38 @@ public final class PathHelper {
     public File getGeneratedSourcesDir(SourceSet sourceSet) {
         return project.getBuildDir().toPath()
             .resolve("generated/sources/fxml/java")
-            .resolve(sourceSet.getName()).toFile();
+            .resolve(sourceSet.getName())
+            .toFile();
     }
 
     public Set<SourceSet> getSourceSets() {
         return project.getExtensions().getByType(JavaPluginExtension.class).getSourceSets();
+    }
+
+    public Map<File, List<File>> getMarkupFilesPerSourceDirectory(SourceSet sourceSet) {
+        Map<File, List<File>> result = new HashMap<>();
+        File genSrcDir = getGeneratedSourcesDir(sourceSet);
+
+        for (File sourceDir : sourceSet.getAllSource().getSrcDirs()) {
+            // If the current source directory is a generated sources directory, skip it.
+            if (genSrcDir.equals(sourceDir)) {
+                continue;
+            }
+
+            List<File> files = new ArrayList<>();
+            Path sourcePath = sourceDir.toPath();
+
+            try (Stream<Path> stream = Files.isDirectory(sourcePath) ? Files.walk(sourcePath) : Stream.empty()) {
+                stream.filter(this::fileFilter).forEach(file -> files.add(file.toFile()));
+            } catch (IOException ex) {
+                throw new GradleException(
+                    String.format("Compilation failed with %s: %s", ex.getClass().getName(), ex.getMessage()));
+            }
+
+            result.put(sourceDir, files);
+        }
+
+        return result;
     }
 
     public Iterable<Path> enumerateFiles(Path basePath, Predicate<Path> filter) throws IOException {
@@ -49,6 +84,18 @@ public final class PathHelper {
         String name = file.getName();
         int lastIdx = name.lastIndexOf('.');
         return name.substring(0, lastIdx < 0 ? name.length() : lastIdx);
+    }
+
+    private boolean fileFilter(Path path) {
+        String file = path.toString().toLowerCase(Locale.ROOT);
+
+        for (String ext : FXML_EXTENSIONS) {
+            if (file.endsWith(ext)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
 }
