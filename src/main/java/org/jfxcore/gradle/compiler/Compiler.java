@@ -7,14 +7,13 @@ import org.gradle.api.GradleException;
 import org.gradle.api.logging.Logger;
 import java.io.File;
 import java.io.IOException;
-import java.lang.reflect.InvocationHandler;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -24,13 +23,15 @@ public class Compiler implements AutoCloseable {
     private static final String LOGGER_NAME = "org.jfxcore.compiler.Logger";
 
     private final Object compilerInstance;
+    private final Method closeMethod;
     private final Method addFileMethod;
     private final Method processFilesMethod;
     private final Method compileFilesMethod;
     private final CompilerClassLoader classLoader;
     private final ExceptionHelper exceptionHelper;
 
-    public Compiler(File generatedSourcesDir, Set<File> searchPath, Logger logger) throws Exception {
+    public Compiler(File generatedSourcesDir, Set<File> searchPath, Logger logger)
+            throws ReflectiveOperationException {
         List<URL> urls = new ArrayList<>(searchPath.stream().map(file -> {
             try {
                 return new URL("file", null, file.getCanonicalPath());
@@ -49,67 +50,77 @@ public class Compiler implements AutoCloseable {
         Object compilerLogger = Proxy.newProxyInstance(
             compilerLoggerClass.getClassLoader(),
             new Class[] {compilerLoggerClass},
-            new InvocationHandler() {
-                @Override
-                public Object invoke(Object proxy, Method method, Object[] args)
-                        throws InvocationTargetException, IllegalAccessException {
-                    switch (method.getName()) {
-                        case "debug":
-                            logger.debug((String)args[0]);
-                            return null;
-
-                        case "info":
-                            logger.lifecycle((String)args[0]);
-                            return null;
-
-                        case "error":
-                            logger.error((String)args[0]);
-                            return null;
-                    }
-
-                    return method.invoke(proxy, args);
-                }
+            (proxy, method, args) -> switch (method.getName()) {
+                case "debug" -> { logger.debug((String) args[0]); yield null; }
+                case "info" -> { logger.lifecycle((String) args[0]); yield null; }
+                case "error" -> { logger.error((String) args[0]); yield null; }
+                default -> method.invoke(proxy, args);
             });
 
         compilerInstance = Class.forName(COMPILER_NAME, true, classLoader)
             .getConstructor(Path.class, Set.class, compilerLoggerClass)
             .newInstance(generatedSourcesDir.toPath(), searchPath, compilerLogger);
 
+        closeMethod = compilerInstance.getClass().getMethod("close");
         addFileMethod = compilerInstance.getClass().getMethod("addFile", Path.class, Path.class);
         processFilesMethod = compilerInstance.getClass().getMethod("processFiles");
         compileFilesMethod = compilerInstance.getClass().getMethod("compileFiles");
     }
 
     @Override
-    public void close() throws IOException {
-        classLoader.close();
+    public void close() {
+        try {
+            closeMethod.invoke(compilerInstance);
+            classLoader.close();
+        } catch (Throwable ex) {
+            ExceptionHelper.throwUnchecked(ex.getCause());
+        }
     }
 
     public ExceptionHelper getExceptionHelper() {
         return exceptionHelper;
     }
 
-    public Path addFile(File sourceDir, File sourceFile) throws Throwable {
+    private Path addFile(File sourceDir, File sourceFile) {
         try {
             return (Path)addFileMethod.invoke(compilerInstance, sourceDir.toPath(), sourceFile.toPath());
-        } catch (InvocationTargetException ex) {
-            throw ex.getCause();
+        } catch (Throwable ex) {
+            ExceptionHelper.throwUnchecked(ex.getCause());
+            return null;
         }
     }
 
-    public void processFiles() throws Throwable {
+    public List<File> addFiles(Map<File, List<File>> markupFilesPerSourceDirectory) {
+        List<File> generatedJavaFiles = new ArrayList<>();
+
+        for (var entry : markupFilesPerSourceDirectory.entrySet()) {
+            File sourceDir = entry.getKey();
+            List<File> sourceFiles = entry.getValue();
+
+            for (File sourceFile : sourceFiles) {
+                Path generatedFile = addFile(sourceDir, sourceFile);
+                if (generatedFile != null) {
+                    generatedJavaFiles.add(generatedFile.toFile());
+                }
+            }
+        }
+
+        return generatedJavaFiles;
+    }
+
+    public void processFiles() {
         try {
             processFilesMethod.invoke(compilerInstance);
-        } catch (InvocationTargetException ex) {
-            throw ex.getCause();
+        } catch (Throwable ex) {
+            ExceptionHelper.throwUnchecked(ex.getCause());
         }
     }
 
-    public void compileFiles() throws Throwable {
+    public void compileFiles() {
         try {
             compileFilesMethod.invoke(compilerInstance);
-        } catch (InvocationTargetException ex) {
-            throw ex.getCause();
+        } catch (Throwable ex) {
+            ExceptionHelper.throwUnchecked(ex.getCause());
         }
     }
 

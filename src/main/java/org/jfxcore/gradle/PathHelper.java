@@ -11,11 +11,12 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Predicate;
@@ -42,8 +43,8 @@ public final class PathHelper {
         return project.getExtensions().getByType(JavaPluginExtension.class).getSourceSets();
     }
 
-    public Map<File, Set<File>> getMarkupFileSets(SourceSet sourceSet) {
-        Map<File, Set<File>> result = new HashMap<>();
+    public Map<File, List<File>> getMarkupFilesPerSourceDirectory(SourceSet sourceSet) {
+        Map<File, List<File>> result = new HashMap<>();
         File genSrcDir = getGeneratedSourcesDir(sourceSet);
 
         for (File sourceDir : sourceSet.getAllSource().getSrcDirs()) {
@@ -52,7 +53,7 @@ public final class PathHelper {
                 continue;
             }
 
-            Set<File> files = new HashSet<>();
+            List<File> files = new ArrayList<>();
             Path sourcePath = sourceDir.toPath();
 
             try (Stream<Path> stream = Files.isDirectory(sourcePath) ? Files.walk(sourcePath) : Stream.empty()) {
@@ -86,8 +87,15 @@ public final class PathHelper {
     }
 
     private boolean fileFilter(Path path) {
-        String file = path.toString().toLowerCase();
-        return Arrays.stream(FXML_EXTENSIONS).anyMatch(file::endsWith);
+        String file = path.toString().toLowerCase(Locale.ROOT);
+
+        for (String ext : FXML_EXTENSIONS) {
+            if (file.endsWith(ext)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
 }

@@ -5,10 +5,9 @@ package org.jfxcore.gradle.compiler;
 
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
-import org.gradle.api.tasks.SourceSet;
 import java.io.File;
 
-public class ExceptionHelper {
+public final class ExceptionHelper {
 
     private static final String CLASS_NAME = "org.jfxcore.compiler.diagnostic.MarkupException";
 
@@ -43,22 +42,22 @@ public class ExceptionHelper {
     }
 
     @SuppressWarnings("unchecked")
-    private static <E extends Throwable> void throwUnchecked(Throwable e) throws E {
+    public static <E extends Throwable> void throwUnchecked(Throwable e) throws E {
         throw (E)e;
     }
 
     @FunctionalInterface
     public interface RunnableEx {
-        void run() throws Throwable;
+        void run(Compiler compiler) throws Throwable;
     }
 
-    public static void run(Project project, SourceSet sourceSet, RunnableEx runnable) {
+    public static void run(Project project, Compiler compiler, RunnableEx runnable) {
         try {
-            runnable.run();
+            runnable.run(compiler);
         } catch (GradleException ex) {
             throw ex;
         } catch (RuntimeException ex) {
-            var exceptionHelper = CompilerService.get(project).getCompiler(sourceSet).getExceptionHelper();
+            var exceptionHelper = compiler.getExceptionHelper();
             if (exceptionHelper.isMarkupException(ex)) {
                 project.getLogger().error(exceptionHelper.format(ex));
             } else {
