@@ -76,8 +76,8 @@ public abstract class ProcessMarkupTask extends DefaultTask {
 
         try (var compiler = CompilerService.get(project).newCompiler(
                 sourceSet, pathHelper.getGeneratedSourcesDir(sourceSet), project.getLogger())) {
-            var files = compiler.addFiles(pathHelper.getMarkupFilesPerSourceDirectory(sourceSet));
-            return cachedGeneratedFiles = project.files(files);
+            compiler.addFiles(pathHelper.getMarkupFilesPerSourceDirectory(sourceSet));
+            return cachedGeneratedFiles = project.files(compiler.getGeneratedJavaFiles());
         } catch (GradleException ex) {
             throw ex;
         } catch (Throwable ex) {

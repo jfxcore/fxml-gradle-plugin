@@ -9,6 +9,7 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.tasks.SourceSet;
+import org.jfxcore.gradle.compiler.Compiler;
 import org.jfxcore.gradle.compiler.CompilerService;
 import org.jfxcore.gradle.compiler.ExceptionHelper;
 import org.jfxcore.gradle.tasks.ProcessMarkupTask;
@@ -61,43 +62,61 @@ public class CompilerPlugin implements Plugin<Project> {
         // incremental compilation: Gradle will fingerprint the compiled class files after the
         // last task action is executed, i.e. after the FXML compiler has rewritten the bytecode.
         getTask(project, sourceSet.getCompileJavaTaskName()).doLast(task ->
-            ExceptionHelper.run(project, CompilerService.get(project).getCompiler(sourceSet), compiler -> {
-                // We will only have a compiler if ProcessMarkupTask has run.
-                if (compiler == null) {
-                    return;
-                }
-
-                try {
-                    compiler.compileFiles();
-                } catch (Throwable ex) {
-                    // If the FXML compiler fails, we need to delete all generated Java files.
-                    // This ensures that ProcessMarkupTask is no longer up-to-date, and it will
-                    // regenerate the files on the next build, causing the FXML compiler to run
-                    // once again.
-                    for (File file : processMarkupTask.getGeneratedFiles()) {
-                        Path filePath = file.toPath();
-                        if (Files.exists(filePath)) {
-                            try {
-                                Files.delete(filePath);
-                            } catch (IOException ex2) {
-                                ex2.addSuppressed(ex);
-                                throw new GradleException("Cannot delete " + filePath, ex2);
-                            }
-                        }
-                    }
-
-                    throw ex;
-                } finally {
-                    compiler.close();
-                }
-            })
-        );
+            ExceptionHelper.run(
+                project,
+                CompilerService.get(project).getCompiler(sourceSet),
+                compiler -> runCompiler(project, sourceSet, compiler)));
 
         for (String target : new String[] { "java", "kotlin", "scala", "groovy" }) {
             String compileTaskName = sourceSet.getTaskName("compile", target);
             Task compileTask = project.getTasks().findByName(compileTaskName);
             if (compileTask != null) {
                 compileTask.dependsOn(processMarkupTask);
+            }
+        }
+    }
+
+    private void runCompiler(Project project, SourceSet sourceSet, Compiler compiler) throws Throwable {
+        try {
+            PathHelper pathHelper = new PathHelper(project);
+
+            if (compiler != null) {
+                // We will only have a compiler if ProcessMarkupTask has run. In this case,
+                // we need to invoke the compiler and back up the modified class files to
+                // the temp directory.
+                compiler.compileFiles();
+                pathHelper.copyClassFilesToTempDirectory(sourceSet, compiler.getGeneratedJavaFiles());
+            } else {
+                // If we don't have a compiler, ProcessMarkupTask was skipped. We can't be
+                // sure that compileJava didn't re-compile our generated Java files, which
+                // would undo the modifications that the FXML compiler has made to the files.
+                // In this case, we need to restore the backup class files from the temp directory.
+                compiler = CompilerService.get(project).newCompiler(
+                    sourceSet, pathHelper.getGeneratedSourcesDir(sourceSet), project.getLogger());
+                compiler.addFiles(pathHelper.getMarkupFilesPerSourceDirectory(sourceSet));
+                pathHelper.restoreClassFilesFromTempDirectory(sourceSet, compiler.getGeneratedJavaFiles());
+            }
+        } catch (Throwable ex) {
+            // If the FXML compiler fails, we need to delete all generated Java files.
+            // This ensures that ProcessMarkupTask is no longer up-to-date, and it will
+            // regenerate the files on the next build, causing the FXML compiler to run
+            // once again.
+            for (File file : (compiler != null ? compiler.getGeneratedJavaFiles() : List.<File>of())) {
+                Path filePath = file.toPath();
+                if (Files.exists(filePath)) {
+                    try {
+                        Files.delete(filePath);
+                    } catch (IOException ex2) {
+                        ex2.addSuppressed(ex);
+                        throw new GradleException("Cannot delete " + filePath, ex2);
+                    }
+                }
+            }
+
+            throw ex;
+        } finally {
+            if (compiler != null) {
+                compiler.close();
             }
         }
     }

@@ -11,8 +11,10 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -69,6 +71,71 @@ public final class PathHelper {
         return result;
     }
 
+    public void copyClassFilesToTempDirectory(SourceSet sourceSet, List<File> generatedJavaFiles) throws IOException {
+        Path tempDir = project.getBuildDir().toPath()
+            .resolve("tmp")
+            .resolve("fxml")
+            .resolve(sourceSet.getName());
+
+        Path classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile().toPath();
+
+        if (Files.exists(tempDir)) {
+            try (var stream = Files.walk(tempDir)) {
+                stream.map(Path::toFile).sorted(Comparator.reverseOrder()).forEach(File::delete);
+            }
+        }
+
+        for (File classFile : getOutputClassFiles(sourceSet, generatedJavaFiles)) {
+            Path tempFile = tempDir.resolve(classesDir.relativize(classFile.toPath()));
+            Files.createDirectories(tempFile.getParent());
+            Files.copy(classFile.toPath(), tempFile, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    public void restoreClassFilesFromTempDirectory(SourceSet sourceSet, List<File> generatedJavaFiles) {
+        Path tempDir = project.getBuildDir().toPath()
+            .resolve("tmp")
+            .resolve("fxml")
+            .resolve(sourceSet.getName());
+
+        Path classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile().toPath();
+        Path genSrcDir = getGeneratedSourcesDir(sourceSet).toPath();
+
+        for (File genJavaFile : generatedJavaFiles) {
+            Path relJavaFile = genSrcDir.relativize(genJavaFile.toPath());
+            String fileName = getFileNameWithoutExtension(relJavaFile) + ".class";
+            Path relJavaFileDir = relJavaFile.getParent();
+            Path tempFile = tempDir.resolve(relJavaFileDir).resolve(fileName);
+
+            if (Files.exists(tempFile)) {
+                Path targetFile = classesDir.resolve(relJavaFileDir).resolve(fileName);
+
+                try {
+                    if (Files.mismatch(tempFile, targetFile) >= 0) {
+                        project.getLogger().info("Restoring from cache: " + targetFile);
+                        Files.copy(tempFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                } catch (IOException ex) {
+                    project.getLogger().error(String.format("Cannot copy %s to %s", tempFile, targetFile));
+                }
+            }
+        }
+    }
+
+    public List<File> getOutputClassFiles(SourceSet sourceSet, List<File> generatedJavaFiles) {
+        Path genSrcDir = getGeneratedSourcesDir(sourceSet).toPath();
+        List<File> classFiles = new ArrayList<>();
+
+        for (File file : generatedJavaFiles) {
+            String fileName = getFileNameWithoutExtension(file) + ".class";
+            Path relFile = genSrcDir.relativize(file.toPath()).getParent().resolve(fileName);
+            Path classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile().toPath();
+            classFiles.add(classesDir.resolve(relFile).toFile());
+        }
+
+        return classFiles;
+    }
+
     public Iterable<Path> enumerateFiles(Path basePath, Predicate<Path> filter) throws IOException {
         if (Files.isDirectory(basePath)) {
             try (Stream<Path> stream = Files.walk(basePath)) {
@@ -82,6 +149,12 @@ public final class PathHelper {
 
     public String getFileNameWithoutExtension(File file) {
         String name = file.getName();
+        int lastIdx = name.lastIndexOf('.');
+        return name.substring(0, lastIdx < 0 ? name.length() : lastIdx);
+    }
+
+    public String getFileNameWithoutExtension(Path file) {
+        String name = file.getName(file.getNameCount() - 1).toString();
         int lastIdx = name.lastIndexOf('.');
         return name.substring(0, lastIdx < 0 ? name.length() : lastIdx);
     }

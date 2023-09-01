@@ -29,6 +29,7 @@ public class Compiler implements AutoCloseable {
     private final Method compileFilesMethod;
     private final CompilerClassLoader classLoader;
     private final ExceptionHelper exceptionHelper;
+    private final List<File> generatedJavaFiles = new ArrayList<>();
 
     public Compiler(File generatedSourcesDir, Set<File> searchPath, Logger logger)
             throws ReflectiveOperationException {
@@ -81,6 +82,10 @@ public class Compiler implements AutoCloseable {
         return exceptionHelper;
     }
 
+    public List<File> getGeneratedJavaFiles() {
+        return generatedJavaFiles;
+    }
+
     private Path addFile(File sourceDir, File sourceFile) {
         try {
             return (Path)addFileMethod.invoke(compilerInstance, sourceDir.toPath(), sourceFile.toPath());
@@ -90,9 +95,7 @@ public class Compiler implements AutoCloseable {
         }
     }
 
-    public List<File> addFiles(Map<File, List<File>> markupFilesPerSourceDirectory) {
-        List<File> generatedJavaFiles = new ArrayList<>();
-
+    public void addFiles(Map<File, List<File>> markupFilesPerSourceDirectory) {
         for (var entry : markupFilesPerSourceDirectory.entrySet()) {
             File sourceDir = entry.getKey();
             List<File> sourceFiles = entry.getValue();
@@ -104,8 +107,6 @@ public class Compiler implements AutoCloseable {
                 }
             }
         }
-
-        return generatedJavaFiles;
     }
 
     public void processFiles() {
