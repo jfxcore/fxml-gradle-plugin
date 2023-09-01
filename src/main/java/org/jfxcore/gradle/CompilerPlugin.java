@@ -9,6 +9,8 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.tasks.SourceSet;
+import org.gradle.api.tasks.TaskCollection;
+import org.gradle.jvm.tasks.Jar;
 import org.jfxcore.gradle.compiler.Compiler;
 import org.jfxcore.gradle.compiler.CompilerService;
 import org.jfxcore.gradle.compiler.ExceptionHelper;
@@ -35,13 +37,13 @@ public class CompilerPlugin implements Plugin<Project> {
     }
 
     private void configureTasks(Project project) {
-        List<Task> dependentJarTasks =  project.getConfigurations().stream()
+        List<TaskCollection<Jar>> dependentJarTasks =  project.getConfigurations().stream()
             .flatMap(dep -> dep.getDependencies().stream())
             .filter(dep -> dep instanceof ProjectDependency)
             .map(dep -> (ProjectDependency)dep)
             .map(ProjectDependency::getDependencyProject)
             .distinct()
-            .flatMap(dp -> dp.getTasksByName("jar", false).stream())
+            .map(dp -> dp.getTasks().withType(Jar.class).matching(jar -> jar.getName().equals("jar")))
             .toList();
 
         for (SourceSet sourceSet : new PathHelper(project).getSourceSets()) {
@@ -50,7 +52,7 @@ public class CompilerPlugin implements Plugin<Project> {
     }
 
     private void configureTasksForSourceSet(
-            Project project, SourceSet sourceSet, List<Task> dependentJarTasks) {
+            Project project, SourceSet sourceSet, List<TaskCollection<Jar>> dependentJarTasks) {
         ProcessMarkupTask processMarkupTask = project.getTasks().create(
             sourceSet.getTaskName(ProcessMarkupTask.VERB, ProcessMarkupTask.TARGET),
             ProcessMarkupTask.class, task -> {
