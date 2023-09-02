@@ -63,8 +63,9 @@ public class Compiler implements AutoCloseable {
             compilerLoggerClass.getClassLoader(),
             new Class[] {compilerLoggerClass},
             (proxy, method, args) -> switch (method.getName()) {
-                case "debug" -> { logger.debug((String) args[0]); yield null; }
+                case "debug", "fine" -> { logger.info((String) args[0]); yield null; }
                 case "info" -> { logger.lifecycle((String) args[0]); yield null; }
+                case "warning" -> { logger.warn((String) args[0]); yield null; }
                 case "error" -> { logger.error((String) args[0]); yield null; }
                 default -> method.invoke(proxy, args);
             });
