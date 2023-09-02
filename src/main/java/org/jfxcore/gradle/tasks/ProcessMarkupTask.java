@@ -21,7 +21,6 @@ import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.util.PatternSet;
 import org.jfxcore.gradle.PathHelper;
 import org.jfxcore.gradle.compiler.CompilerService;
-import org.jfxcore.gradle.compiler.ExceptionHelper;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -102,14 +101,7 @@ public abstract class ProcessMarkupTask extends DefaultTask {
             // This is necessary because the FXML compiler needs a 'clean slate' to work with.
             compiler.getCompilationUnits().getClassFiles().forEach(File::delete);
         } catch (Throwable ex) {
-            if (ex instanceof RuntimeException r) {
-                ExceptionHelper exceptionHelper = compiler.getExceptionHelper();
-                if (exceptionHelper.isMarkupException(r)) {
-                    project.getLogger().error(exceptionHelper.format(r));
-                    throw new GradleException("Compilation failed; see the compiler error output for details.");
-                }
-            }
-
+            compiler.getExceptionHelper().handleException(ex, getLogger());
             throw new GradleException("Internal compiler error", ex);
         } finally {
             compiler.close();

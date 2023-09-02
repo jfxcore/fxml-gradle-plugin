@@ -3,17 +3,21 @@
 
 package org.jfxcore.gradle.compiler;
 
+import org.gradle.api.GradleException;
+import org.gradle.api.logging.Logger;
 import java.io.File;
 
 public final class ExceptionHelper {
 
-    private static final String CLASS_NAME = "org.jfxcore.compiler.diagnostic.MarkupException";
-
     private final Class<?> markupExceptionClass;
+    private final Class<?> diagnosticClass;
+    private final Class<?> errorCodeClass;
 
     public ExceptionHelper(ClassLoader classLoader) {
         try {
-            markupExceptionClass = Class.forName(CLASS_NAME, true, classLoader);
+            markupExceptionClass = Class.forName("org.jfxcore.compiler.diagnostic.MarkupException", true, classLoader);
+            diagnosticClass = Class.forName("org.jfxcore.compiler.diagnostic.Diagnostic", true, classLoader);
+            errorCodeClass = Class.forName("org.jfxcore.compiler.diagnostic.ErrorCode", true, classLoader);
         } catch (ClassNotFoundException ex) {
             String message = "Class not found: " + ex.getMessage();
             throw new RuntimeException(message, ex);
@@ -22,6 +26,21 @@ public final class ExceptionHelper {
 
     public boolean isMarkupException(RuntimeException ex) {
         return markupExceptionClass.isInstance(ex);
+    }
+
+    public boolean isInternalError(RuntimeException ex) {
+        if (!isMarkupException(ex)) {
+            return false;
+        }
+
+        try {
+            Object diagnostic = ex.getClass().getMethod("getDiagnostic").invoke(ex);
+            Object errorCode = diagnosticClass.getMethod("getCode").invoke(diagnostic);
+            return (int)errorCodeClass.getMethod("ordinal").invoke(errorCode) == 0;
+        } catch (ReflectiveOperationException ex2) {
+            throwUnchecked(ex2);
+            return false;
+        }
     }
 
     public String format(RuntimeException ex) {
@@ -36,6 +55,20 @@ public final class ExceptionHelper {
         } catch (ReflectiveOperationException ex2) {
             throwUnchecked(ex2);
             return null;
+        }
+    }
+
+    public void handleException(Throwable ex, Logger logger) {
+        if (ex instanceof RuntimeException r) {
+            if (isInternalError(r)) {
+                logger.error(format(r));
+                throw new GradleException("Internal compiler error; please clean and rebuild the project.");
+            }
+
+            if (isMarkupException(r)) {
+                logger.error(format(r));
+                throw new GradleException("Compilation failed; see the compiler error output for details.");
+            }
         }
     }
 
