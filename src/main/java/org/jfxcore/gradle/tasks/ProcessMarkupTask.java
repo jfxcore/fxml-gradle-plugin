@@ -23,12 +23,8 @@ import org.jfxcore.gradle.PathHelper;
 import org.jfxcore.gradle.compiler.CompilerService;
 import org.jfxcore.gradle.compiler.ExceptionHelper;
 import java.io.File;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Predicate;
 
 public abstract class ProcessMarkupTask extends DefaultTask {
 
@@ -75,9 +71,9 @@ public abstract class ProcessMarkupTask extends DefaultTask {
         PathHelper pathHelper = new PathHelper(project);
 
         try (var compiler = CompilerService.get(project).newCompiler(
-                sourceSet, pathHelper.getGeneratedSourcesDir(sourceSet), project.getLogger())) {
+                project, sourceSet, pathHelper.getGeneratedSourcesDir(sourceSet), project.getLogger())) {
             compiler.addFiles(pathHelper.getMarkupFilesPerSourceDirectory(sourceSet));
-            return cachedGeneratedFiles = project.files(compiler.getGeneratedJavaFiles());
+            return cachedGeneratedFiles = project.files(compiler.getCompilationUnits().getJavaFiles());
         } catch (GradleException ex) {
             throw ex;
         } catch (Throwable ex) {
@@ -102,7 +98,7 @@ public abstract class ProcessMarkupTask extends DefaultTask {
         File genSrcDir = pathHelper.getGeneratedSourcesDir(sourceSet);
         CompilerService service = CompilerService.get(project);
 
-        ExceptionHelper.run(project, service.newCompiler(sourceSet, genSrcDir, getLogger()), compiler -> {
+        ExceptionHelper.run(project, service.newCompiler(project, sourceSet, genSrcDir, getLogger()), compiler -> {
             // Invoke the addFiles and processFiles stages for the source set.
             // This will generate .java source files that are placed in the generated sources directory.
             compiler.addFiles(pathHelper.getMarkupFilesPerSourceDirectory(sourceSet));
@@ -110,22 +106,7 @@ public abstract class ProcessMarkupTask extends DefaultTask {
 
             // Delete all .class files that may have been created by a previous compiler run.
             // This is necessary because the FXML compiler needs a 'clean slate' to work with.
-            Predicate<Path> fileFilter = path -> path.toString().toLowerCase().endsWith(".java");
-            Path classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile().toPath();
-
-            for (Path file : pathHelper.enumerateFiles(genSrcDir.toPath(), fileFilter)) {
-                String fileName = pathHelper.getFileNameWithoutExtension(file.toFile()) + ".class";
-                Path relFile = genSrcDir.toPath().relativize(file).getParent().resolve(fileName);
-                Path classFile = classesDir.resolve(relFile);
-
-                if (Files.exists(classFile)) {
-                    try {
-                        Files.delete(classFile);
-                    } catch (IOException ex) {
-                        throw new GradleException("Cannot delete " + classFile, ex);
-                    }
-                }
-            }
+            compiler.getCompilationUnits().getClassFiles().forEach(File::delete);
         });
 
         setDidWork(true);
