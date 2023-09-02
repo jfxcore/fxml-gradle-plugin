@@ -65,10 +65,7 @@ public class CompilerPlugin implements Plugin<Project> {
         // incremental compilation: Gradle will fingerprint the compiled class files after the
         // last task action is executed, i.e. after the FXML compiler has rewritten the bytecode.
         getTask(project, sourceSet.getCompileJavaTaskName()).doLast(task ->
-            ExceptionHelper.run(
-                project,
-                CompilerService.get(project).getCompiler(sourceSet),
-                compiler -> runCompiler(project, sourceSet, compiler)));
+            runCompiler(project, sourceSet, CompilerService.get(project).getCompiler(sourceSet)));
 
         for (String target : new String[] { "java", "kotlin", "scala", "groovy" }) {
             String compileTaskName = sourceSet.getTaskName("compile", target);
@@ -79,7 +76,7 @@ public class CompilerPlugin implements Plugin<Project> {
         }
     }
 
-    private void runCompiler(Project project, SourceSet sourceSet, Compiler compiler) throws Throwable {
+    private void runCompiler(Project project, SourceSet sourceSet, Compiler compiler) {
         try {
             PathHelper pathHelper = new PathHelper(project);
 
@@ -160,7 +157,15 @@ public class CompilerPlugin implements Plugin<Project> {
                 }
             }
 
-            throw ex;
+            if (compiler != null && ex instanceof RuntimeException r) {
+                ExceptionHelper exceptionHelper = compiler.getExceptionHelper();
+                if (exceptionHelper.isMarkupException(r)) {
+                    project.getLogger().error(exceptionHelper.format(r));
+                    throw new GradleException("Compilation failed; see the compiler error output for details.");
+                }
+            }
+
+            throw new GradleException("Internal compiler error", ex);
         } finally {
             if (compiler != null) {
                 compiler.close();
