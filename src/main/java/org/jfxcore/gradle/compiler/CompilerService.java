@@ -10,9 +10,9 @@ import org.gradle.api.services.BuildService;
 import org.gradle.api.services.BuildServiceParameters;
 import org.gradle.api.tasks.SourceSet;
 import java.io.File;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -23,30 +23,28 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
     public static void register(Project project) {
         project.getGradle()
             .getSharedServices()
-            .registerIfAbsent(
-                String.format("%s:%s", project.getPath(), CompilerService.class.getName()),
-                CompilerService.class,
-                spec -> {});
+            .registerIfAbsent(CompilerService.class.getName(), CompilerService.class, spec -> {});
     }
 
     public static CompilerService get(Project project) {
         return (CompilerService)project.getGradle()
             .getSharedServices()
             .getRegistrations()
-            .findByName(String.format("%s:%s", project.getPath(), CompilerService.class.getName()))
+            .findByName(CompilerService.class.getName())
             .getService()
             .get();
     }
 
     @Override
-    public final void close() {
+    public synchronized final void close() {
         // Make a copy of the compiler list because it will be modified by calling 'close'.
-        for (Compiler compiler : new ArrayList<>(compilers.values())) {
+        for (Compiler compiler : List.copyOf(compilers.values())) {
             compiler.close();
         }
     }
 
-    public final Compiler newCompiler(SourceSet sourceSet, File generatedSourcesDir, Logger logger) {
+    public synchronized final Compiler newCompiler(
+            Project project, SourceSet sourceSet, File generatedSourcesDir, Logger logger) {
         if (compilers.containsKey(sourceSet)) {
             throw new GradleException(
                 String.format("Compiler already exists for source set '%s'", sourceSet.getName()));
@@ -57,11 +55,14 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
         searchPath.addAll(sourceSet.getCompileClasspath().getFiles());
 
         try {
-            Compiler compiler = new Compiler(generatedSourcesDir, searchPath, logger) {
+            Compiler compiler = new Compiler(project, sourceSet, generatedSourcesDir, searchPath, logger) {
                 @Override
                 public void close() {
                     super.close();
-                    compilers.remove(sourceSet);
+
+                    synchronized (CompilerService.this) {
+                        compilers.remove(sourceSet);
+                    }
                 }
             };
 
@@ -73,7 +74,7 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
         }
     }
 
-    public final Compiler getCompiler(SourceSet sourceSet) {
+    public synchronized final Compiler getCompiler(SourceSet sourceSet) {
         return compilers.get(sourceSet);
     }
 

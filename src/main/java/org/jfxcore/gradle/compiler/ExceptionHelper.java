@@ -66,9 +66,7 @@ public final class ExceptionHelper {
 
             throw new GradleException("Compilation failed; see the compiler error output for details.");
         } catch (Throwable ex) {
-            String message = ex.getMessage();
-            throw new GradleException(
-                message == null || message.isEmpty() ? "Internal compiler error" : message, ex);
+            throw new GradleException("Internal compiler error", ex);
         }
     }
 

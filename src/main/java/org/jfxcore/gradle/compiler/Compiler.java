@@ -4,7 +4,10 @@
 package org.jfxcore.gradle.compiler;
 
 import org.gradle.api.GradleException;
+import org.gradle.api.Project;
 import org.gradle.api.logging.Logger;
+import org.gradle.api.tasks.SourceSet;
+import org.jfxcore.gradle.PathHelper;
 import java.io.File;
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -12,6 +15,7 @@ import java.lang.reflect.Proxy;
 import java.net.URL;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -22,6 +26,8 @@ public class Compiler implements AutoCloseable {
     public static final String COMPILER_NAME = "org.jfxcore.compiler.Compiler";
     private static final String LOGGER_NAME = "org.jfxcore.compiler.Logger";
 
+    private final Project project;
+    private final SourceSet sourceSet;
     private final Object compilerInstance;
     private final Method closeMethod;
     private final Method addFileMethod;
@@ -29,10 +35,15 @@ public class Compiler implements AutoCloseable {
     private final Method compileFilesMethod;
     private final CompilerClassLoader classLoader;
     private final ExceptionHelper exceptionHelper;
-    private final List<File> generatedJavaFiles = new ArrayList<>();
+    private final Path generatedSourcesDir;
+    private final CompilationUnitCollection files = new CompilationUnitCollection();
 
-    public Compiler(File generatedSourcesDir, Set<File> searchPath, Logger logger)
+    public Compiler(Project project, SourceSet sourceSet, File generatedSourcesDir, Set<File> searchPath, Logger logger)
             throws ReflectiveOperationException {
+        this.project = project;
+        this.sourceSet = sourceSet;
+        this.generatedSourcesDir = generatedSourcesDir.toPath();
+
         List<URL> urls = new ArrayList<>(searchPath.stream().map(file -> {
             try {
                 return new URL("file", null, file.getCanonicalPath());
@@ -82,8 +93,8 @@ public class Compiler implements AutoCloseable {
         return exceptionHelper;
     }
 
-    public List<File> getGeneratedJavaFiles() {
-        return generatedJavaFiles;
+    public CompilationUnitCollection getCompilationUnits() {
+        return files;
     }
 
     private Path addFile(File sourceDir, File sourceFile) {
@@ -96,6 +107,8 @@ public class Compiler implements AutoCloseable {
     }
 
     public void addFiles(Map<File, List<File>> markupFilesPerSourceDirectory) {
+        PathHelper pathHelper = new PathHelper(project);
+
         for (var entry : markupFilesPerSourceDirectory.entrySet()) {
             File sourceDir = entry.getKey();
             List<File> sourceFiles = entry.getValue();
@@ -103,7 +116,13 @@ public class Compiler implements AutoCloseable {
             for (File sourceFile : sourceFiles) {
                 Path generatedFile = addFile(sourceDir, sourceFile);
                 if (generatedFile != null) {
-                    generatedJavaFiles.add(generatedFile.toFile());
+                    String fileName = pathHelper.getFileNameWithoutExtension(generatedFile) + ".class";
+                    Path relFile = generatedSourcesDir.relativize(generatedFile).getParent().resolve(fileName);
+                    Path classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile().toPath();
+                    Path classFile = classesDir.resolve(relFile);
+
+                    files.computeIfAbsent(sourceDir, key -> new ArrayList<>()).add(
+                        new CompilationUnit(sourceFile, generatedFile.toFile(), classFile.toFile()));
                 }
             }
         }
@@ -150,5 +169,21 @@ public class Compiler implements AutoCloseable {
             throw new GradleException("Missing module dependencies: " + String.join(", ", missingDeps));
         }
     }
+
+    public static final class CompilationUnitCollection extends HashMap<File, List<CompilationUnit>> {
+        public List<File> getMarkupFiles() {
+            return values().stream().flatMap(List::stream).map(CompilationUnit::markupFile).toList();
+        }
+
+        public List<File> getJavaFiles() {
+            return values().stream().flatMap(List::stream).map(CompilationUnit::javaFile).toList();
+        }
+
+        public List<File> getClassFiles() {
+            return values().stream().flatMap(List::stream).map(CompilationUnit::classFile).toList();
+        }
+    }
+
+    public record CompilationUnit(File markupFile, File javaFile, File classFile) {}
 
 }
