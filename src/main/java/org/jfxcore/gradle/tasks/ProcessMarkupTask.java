@@ -86,14 +86,7 @@ public abstract class ProcessMarkupTask extends DefaultTask {
     @TaskAction
     public void process() {
         Project project = getProject();
-        SourceSet sourceSet;
-
-        try {
-            sourceSet = getSourceSet().get();
-        } catch (IllegalStateException ignored) {
-            throw new GradleException(String.format(":%s cannot be run in isolation", getName()));
-        }
-
+        SourceSet sourceSet = getSourceSet().get();
         PathHelper pathHelper = new PathHelper(project);
         File genSrcDir = pathHelper.getGeneratedSourcesDir(sourceSet);
         CompilerService service = CompilerService.get(project);
