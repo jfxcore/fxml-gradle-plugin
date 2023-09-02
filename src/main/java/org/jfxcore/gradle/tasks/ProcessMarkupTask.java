@@ -90,8 +90,9 @@ public abstract class ProcessMarkupTask extends DefaultTask {
         PathHelper pathHelper = new PathHelper(project);
         File genSrcDir = pathHelper.getGeneratedSourcesDir(sourceSet);
         CompilerService service = CompilerService.get(project);
+        var compiler = service.newCompiler(project, sourceSet, genSrcDir, getLogger());
 
-        ExceptionHelper.run(project, service.newCompiler(project, sourceSet, genSrcDir, getLogger()), compiler -> {
+        try {
             // Invoke the addFiles and processFiles stages for the source set.
             // This will generate .java source files that are placed in the generated sources directory.
             compiler.addFiles(pathHelper.getMarkupFilesPerSourceDirectory(sourceSet));
@@ -100,7 +101,19 @@ public abstract class ProcessMarkupTask extends DefaultTask {
             // Delete all .class files that may have been created by a previous compiler run.
             // This is necessary because the FXML compiler needs a 'clean slate' to work with.
             compiler.getCompilationUnits().getClassFiles().forEach(File::delete);
-        });
+        } catch (Throwable ex) {
+            if (ex instanceof RuntimeException r) {
+                ExceptionHelper exceptionHelper = compiler.getExceptionHelper();
+                if (exceptionHelper.isMarkupException(r)) {
+                    project.getLogger().error(exceptionHelper.format(r));
+                    throw new GradleException("Compilation failed; see the compiler error output for details.");
+                }
+            }
+
+            throw new GradleException("Internal compiler error", ex);
+        } finally {
+            compiler.close();
+        }
 
         setDidWork(true);
     }

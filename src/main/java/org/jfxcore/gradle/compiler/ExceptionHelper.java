@@ -3,8 +3,6 @@
 
 package org.jfxcore.gradle.compiler;
 
-import org.gradle.api.GradleException;
-import org.gradle.api.Project;
 import java.io.File;
 
 public final class ExceptionHelper {
@@ -44,30 +42,6 @@ public final class ExceptionHelper {
     @SuppressWarnings("unchecked")
     public static <E extends Throwable> void throwUnchecked(Throwable e) throws E {
         throw (E)e;
-    }
-
-    @FunctionalInterface
-    public interface RunnableEx {
-        void run(Compiler compiler) throws Throwable;
-    }
-
-    public static void run(Project project, Compiler compiler, RunnableEx runnable) {
-        try {
-            runnable.run(compiler);
-        } catch (GradleException ex) {
-            throw ex;
-        } catch (RuntimeException ex) {
-            var exceptionHelper = compiler.getExceptionHelper();
-            if (exceptionHelper.isMarkupException(ex)) {
-                project.getLogger().error(exceptionHelper.format(ex));
-            } else {
-                throw ex;
-            }
-
-            throw new GradleException("Compilation failed; see the compiler error output for details.");
-        } catch (Throwable ex) {
-            throw new GradleException("Internal compiler error", ex);
-        }
     }
 
 }
