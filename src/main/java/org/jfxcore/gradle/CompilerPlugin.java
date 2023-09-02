@@ -13,7 +13,6 @@ import org.gradle.api.tasks.TaskCollection;
 import org.gradle.jvm.tasks.Jar;
 import org.jfxcore.gradle.compiler.Compiler;
 import org.jfxcore.gradle.compiler.CompilerService;
-import org.jfxcore.gradle.compiler.ExceptionHelper;
 import org.jfxcore.gradle.tasks.ProcessMarkupTask;
 import java.io.File;
 import java.io.IOException;
@@ -157,12 +156,8 @@ public class CompilerPlugin implements Plugin<Project> {
                 }
             }
 
-            if (compiler != null && ex instanceof RuntimeException r) {
-                ExceptionHelper exceptionHelper = compiler.getExceptionHelper();
-                if (exceptionHelper.isMarkupException(r)) {
-                    project.getLogger().error(exceptionHelper.format(r));
-                    throw new GradleException("Compilation failed; see the compiler error output for details.");
-                }
+            if (compiler != null) {
+                compiler.getExceptionHelper().handleException(ex, project.getLogger());
             }
 
             throw new GradleException("Internal compiler error", ex);
