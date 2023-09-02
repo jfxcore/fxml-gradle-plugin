@@ -10,9 +10,9 @@ import org.gradle.api.services.BuildService;
 import org.gradle.api.services.BuildServiceParameters;
 import org.gradle.api.tasks.SourceSet;
 import java.io.File;
-import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -38,7 +38,7 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
     @Override
     public synchronized final void close() {
         // Make a copy of the compiler list because it will be modified by calling 'close'.
-        for (Compiler compiler : new ArrayList<>(compilers.values())) {
+        for (Compiler compiler : List.copyOf(compilers.values())) {
             compiler.close();
         }
     }
@@ -59,7 +59,10 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
                 @Override
                 public void close() {
                     super.close();
-                    compilers.remove(sourceSet);
+
+                    synchronized (CompilerService.this) {
+                        compilers.remove(sourceSet);
+                    }
                 }
             };
 
