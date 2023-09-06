@@ -18,6 +18,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 
@@ -63,8 +64,7 @@ public class CompilerPlugin implements Plugin<Project> {
         // Run the FXML compiler at the end of compileJava's action list. This is important for
         // incremental compilation: Gradle will fingerprint the compiled class files after the
         // last task action is executed, i.e. after the FXML compiler has rewritten the bytecode.
-        getTask(project, sourceSet.getCompileJavaTaskName()).doLast(task ->
-            runCompiler(project, sourceSet, CompilerService.get(project).getCompiler(sourceSet)));
+        getTask(project, sourceSet.getCompileJavaTaskName()).doLast(task -> runCompiler(project, sourceSet));
 
         for (String target : new String[] { "java", "kotlin", "scala", "groovy" }) {
             String compileTaskName = sourceSet.getTaskName("compile", target);
@@ -75,68 +75,49 @@ public class CompilerPlugin implements Plugin<Project> {
         }
     }
 
-    private void runCompiler(Project project, SourceSet sourceSet, Compiler compiler) {
+    private void runCompiler(Project project, SourceSet sourceSet) {
+        Compiler compiler = null;
+
         try {
             PathHelper pathHelper = new PathHelper(project);
+            compiler = CompilerService.get(project).getCompiler(sourceSet);
 
             if (compiler != null) {
-                // We will only have a compiler if ProcessMarkupTask has run. In this case,
-                // we need to invoke the compiler and back up the modified class files to
-                // the temp directory.
+                // If we have a compiler at this point, then ProcessMarkupTask has run before.
+                // This means that all of our FXML class files are uncompiled, and need to be
+                // compiled by the FXML compiler.
                 compiler.compileFiles();
-                pathHelper.copyClassFilesToCache(sourceSet, compiler.getCompilationUnits().getClassFiles());
             } else {
-                // If we don't have a compiler, ProcessMarkupTask was skipped. We can't be
-                // sure that compileJava didn't re-compile our generated Java files, which
-                // would undo the modifications that the FXML compiler has made to the files.
-                // In this case, we need to restore the backup class files from the temp directory.
+                // If we don't have a compiler, ProcessMarkupTask was skipped. We can't be sure
+                // that compileJava didn't re-compile our FXML class files, which would undo
+                // the modifications that the FXML compiler has made to the files.
+                // Luckily, we can detect whether a class file was compiled by the FXML compiler
+                // since it includes a custom class file attribute. We invoke the compiler to
+                // give us a list of all FXML class files that don't include the custom attribute,
+                // and recompile only those files.
                 File genSrcDir = pathHelper.getGeneratedSourcesDir(sourceSet);
                 var markupFilesPerSourceDirectory = pathHelper.getMarkupFilesPerSourceDirectory(sourceSet);
-                compiler = CompilerService.get(project).newCompiler(project, sourceSet, genSrcDir, project.getLogger());
+                var recompilableMarkupFilesPerSourceDirectory = new HashMap<File, List<File>>();
+
+                compiler = CompilerService.get(project).newCompiler(project, sourceSet, genSrcDir);
                 compiler.addFiles(markupFilesPerSourceDirectory);
 
-                List<File> missingClassFiles = pathHelper.restoreClassFilesFromCache(
-                    sourceSet, compiler.getCompilationUnits().getClassFiles());
-
-                if (missingClassFiles.size() > 0) {
-                    compiler.close();
-
-                    var newMarkupFilesPerSourceDirectory = new HashMap<File, List<File>>();
-
-                    for (var entry : compiler.getCompilationUnits().entrySet()) {
-                        List<Compiler.CompilationUnit> missingCompilationUnits = entry.getValue().stream()
-                            .filter(unit -> missingClassFiles.contains(unit.classFile()))
-                            .toList();
-
-                        File missingTargetClassFile = missingCompilationUnits.stream()
-                            .map(Compiler.CompilationUnit::classFile)
-                            .filter(file -> !file.exists())
-                            .findFirst()
-                            .orElse(null);
-
-                        if (missingTargetClassFile != null) {
-                            throw new GradleException(
-                                "Cannot find compiled FXML class file " + missingTargetClassFile +
-                                "; please clean and rebuild the project.");
+                for (var entry : compiler.getCompilationUnits().entrySet()) {
+                    for (var compilationUnit :  entry.getValue()) {
+                        if (compilationUnit.classFile().exists()
+                                && !compiler.isCompiledFile(compilationUnit.classFile())) {
+                            recompilableMarkupFilesPerSourceDirectory
+                                .computeIfAbsent(entry.getKey(), key -> new ArrayList<>())
+                                .add(compilationUnit.markupFile());
                         }
-
-                        newMarkupFilesPerSourceDirectory.put(
-                            entry.getKey(),
-                            missingCompilationUnits.stream().map(Compiler.CompilationUnit::markupFile).toList());
                     }
+                }
 
-                    project.getLogger().info(
-                        "Some compiled FXML class files cannot be found in the cache, recompiling:\n  " +
-                        String.join(
-                            System.lineSeparator() + "  ",
-                            newMarkupFilesPerSourceDirectory.values().stream()
-                                .flatMap(List::stream).map(File::toString).toList()));
-
-                    compiler = CompilerService.get(project).newCompiler(project, sourceSet, genSrcDir, project.getLogger());
-                    compiler.addFiles(newMarkupFilesPerSourceDirectory);
+                if (recompilableMarkupFilesPerSourceDirectory.size() > 0) {
+                    compiler = CompilerService.get(project).newCompiler(project, sourceSet, genSrcDir);
+                    compiler.addFiles(recompilableMarkupFilesPerSourceDirectory);
                     compiler.processFiles();
                     compiler.compileFiles();
-                    pathHelper.copyClassFilesToCache(sourceSet, compiler.getCompilationUnits().getClassFiles());
                 }
             }
         } catch (Throwable ex) {

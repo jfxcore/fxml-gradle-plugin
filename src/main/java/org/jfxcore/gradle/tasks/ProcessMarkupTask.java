@@ -20,6 +20,7 @@ import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.TaskAction;
 import org.gradle.api.tasks.util.PatternSet;
 import org.jfxcore.gradle.PathHelper;
+import org.jfxcore.gradle.compiler.Compiler;
 import org.jfxcore.gradle.compiler.CompilerService;
 import java.io.File;
 import java.util.ArrayList;
@@ -68,17 +69,27 @@ public abstract class ProcessMarkupTask extends DefaultTask {
         Project project = getProject();
         SourceSet sourceSet = getSourceSet().get();
         PathHelper pathHelper = new PathHelper(project);
+        Compiler compiler = null;
 
-        try (var compiler = CompilerService.get(project).newCompiler(
-                project, sourceSet, pathHelper.getGeneratedSourcesDir(sourceSet), project.getLogger())) {
+        try {
+            compiler = CompilerService.get(project).newCompiler(
+                project, sourceSet, pathHelper.getGeneratedSourcesDir(sourceSet));
+
             compiler.addFiles(pathHelper.getMarkupFilesPerSourceDirectory(sourceSet));
+
             return cachedGeneratedFiles = project.files(compiler.getCompilationUnits().getJavaFiles());
         } catch (GradleException ex) {
             throw ex;
         } catch (Throwable ex) {
-            String message = ex.getMessage();
-            throw new GradleException(
-                message == null || message.isEmpty() ? "Internal compiler error" : message, ex);
+            if (compiler != null) {
+                compiler.getExceptionHelper().handleException(ex, getLogger());
+            }
+
+            throw new GradleException("Internal compiler error", ex);
+        } finally {
+            if (compiler != null) {
+                compiler.close();
+            }
         }
     }
 
@@ -89,7 +100,7 @@ public abstract class ProcessMarkupTask extends DefaultTask {
         PathHelper pathHelper = new PathHelper(project);
         File genSrcDir = pathHelper.getGeneratedSourcesDir(sourceSet);
         CompilerService service = CompilerService.get(project);
-        var compiler = service.newCompiler(project, sourceSet, genSrcDir, getLogger());
+        var compiler = service.newCompiler(project, sourceSet, genSrcDir);
 
         try {
             // Invoke the addFiles and processFiles stages for the source set.
@@ -102,9 +113,8 @@ public abstract class ProcessMarkupTask extends DefaultTask {
             compiler.getCompilationUnits().getClassFiles().forEach(File::delete);
         } catch (Throwable ex) {
             compiler.getExceptionHelper().handleException(ex, getLogger());
-            throw new GradleException("Internal compiler error", ex);
-        } finally {
             compiler.close();
+            throw new GradleException("Internal compiler error", ex);
         }
 
         setDidWork(true);

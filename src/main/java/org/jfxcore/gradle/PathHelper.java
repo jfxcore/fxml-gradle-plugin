@@ -11,15 +11,12 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Predicate;
 import java.util.stream.Stream;
 
 public final class PathHelper {
@@ -67,112 +64,6 @@ public final class PathHelper {
         }
 
         return result;
-    }
-
-    public void copyClassFilesToCache(SourceSet sourceSet, List<File> classFiles) throws IOException {
-        Path cacheBaseDir = project.getBuildDir().toPath()
-            .resolve("fxml")
-            .resolve(sourceSet.getName());
-
-        Path classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile().toPath();
-
-        if (Files.exists(cacheBaseDir)) {
-            try (var stream = Files.walk(cacheBaseDir)) {
-                stream.map(Path::toFile).sorted(Comparator.reverseOrder()).forEach(File::delete);
-            }
-        }
-
-        List<String> fileNames = new ArrayList<>();
-
-        try {
-            for (File classFile : classFiles) {
-                fileNames.add(classFile.toString());
-
-                Path sourceClassFile = classFile.toPath();
-                Path cacheFile = cacheBaseDir.resolve(classesDir.relativize(sourceClassFile));
-                Path cacheDir = cacheFile.getParent();
-
-                Files.createDirectories(cacheDir);
-                Files.copy(sourceClassFile, cacheFile, StandardCopyOption.REPLACE_EXISTING);
-
-                copyNestedClassFiles(sourceClassFile, cacheDir, fileNames);
-            }
-        } finally {
-            if (fileNames.size() > 0) {
-                project.getLogger().info(
-                    "Copying compiled FXML class files to cache:\n  " +
-                    String.join(System.lineSeparator() + "  ", fileNames));
-            }
-        }
-    }
-
-    public List<File> restoreClassFilesFromCache(SourceSet sourceSet, List<File> classFiles) throws IOException {
-        Path cacheBaseDir = project.getBuildDir().toPath()
-            .resolve("fxml")
-            .resolve(sourceSet.getName());
-
-        Path classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile().toPath();
-        List<File> missingFiles = new ArrayList<>();
-        List<String> fileNames = new ArrayList<>();
-
-        try {
-            for (File classFile : classFiles) {
-                Path targetClassFile = classFile.toPath();
-                Path relJavaFile = classesDir.relativize(targetClassFile);
-                String fileNameWithoutExt = getFileNameWithoutExtension(relJavaFile);
-                Path relJavaFileDir = relJavaFile.getParent();
-                Path cacheDir = cacheBaseDir.resolve(relJavaFileDir);
-                Path cacheFile = cacheDir.resolve(fileNameWithoutExt + ".class");
-
-                if (Files.exists(cacheFile)) {
-                    if (copyIfMismatch(cacheFile, targetClassFile)) {
-                        fileNames.add(targetClassFile.toString());
-                    }
-                } else {
-                    missingFiles.add(classFile);
-                }
-
-                copyNestedClassFiles(cacheFile, targetClassFile.getParent(), fileNames);
-            }
-        } finally {
-            if (fileNames.size() > 0) {
-                project.getLogger().info(
-                    "Restoring compiled FXML class files from cache:\n  " +
-                    String.join(System.lineSeparator() + "  ", fileNames));
-            }
-        }
-
-        return missingFiles;
-    }
-
-    private void copyNestedClassFiles(Path classFile, Path targetDir, List<String> outCopiedFiles) throws IOException {
-        Path classFileDir = classFile.getParent();
-        if (!Files.exists(classFileDir)) {
-            return;
-        }
-
-        String nestedClassFilePattern = getFileNameWithoutExtension(classFile) + "$";
-        Predicate<Path> filter = f -> Files.exists(f) && Files.isRegularFile(f)
-            && f.getFileName().toString().startsWith(nestedClassFilePattern);
-
-        try (var stream = Files.walk(classFileDir, 1)) {
-            for (var file : stream.filter(filter).toList()) {
-                Path targetFile = targetDir.resolve(file.getFileName());
-
-                if (copyIfMismatch(file, targetFile)) {
-                    outCopiedFiles.add(file.toString());
-                }
-            }
-        }
-    }
-
-    private boolean copyIfMismatch(Path source, Path destination) throws IOException {
-        if (Files.exists(source) || !Files.exists(destination) || Files.mismatch(source, destination) >= 0) {
-            Files.copy(source, destination, StandardCopyOption.REPLACE_EXISTING);
-            return true;
-        }
-
-        return false;
     }
 
     public String getFileNameWithoutExtension(Path file) {
