@@ -5,7 +5,6 @@ package org.jfxcore.gradle.compiler;
 
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
-import org.gradle.api.logging.Logger;
 import org.gradle.api.tasks.SourceSet;
 import org.jfxcore.gradle.PathHelper;
 import java.io.File;
@@ -33,12 +32,13 @@ public class Compiler implements AutoCloseable {
     private final Method addFileMethod;
     private final Method processFilesMethod;
     private final Method compileFilesMethod;
+    private final Method isCompiledFileMethod;
     private final CompilerClassLoader classLoader;
     private final ExceptionHelper exceptionHelper;
     private final Path generatedSourcesDir;
     private final CompilationUnitCollection files = new CompilationUnitCollection();
 
-    public Compiler(Project project, SourceSet sourceSet, File generatedSourcesDir, Set<File> searchPath, Logger logger)
+    public Compiler(Project project, SourceSet sourceSet, File generatedSourcesDir, Set<File> searchPath)
             throws ReflectiveOperationException {
         this.project = project;
         this.sourceSet = sourceSet;
@@ -63,10 +63,10 @@ public class Compiler implements AutoCloseable {
             compilerLoggerClass.getClassLoader(),
             new Class[] {compilerLoggerClass},
             (proxy, method, args) -> switch (method.getName()) {
-                case "debug", "fine" -> { logger.info((String) args[0]); yield null; }
-                case "info" -> { logger.lifecycle((String) args[0]); yield null; }
-                case "warning" -> { logger.warn((String) args[0]); yield null; }
-                case "error" -> { logger.error((String) args[0]); yield null; }
+                case "debug", "fine" -> { project.getLogger().info((String) args[0]); yield null; }
+                case "info" -> { project.getLogger().lifecycle((String) args[0]); yield null; }
+                case "warning" -> { project.getLogger().warn((String) args[0]); yield null; }
+                case "error" -> { project.getLogger().error((String) args[0]); yield null; }
                 default -> method.invoke(proxy, args);
             });
 
@@ -78,6 +78,7 @@ public class Compiler implements AutoCloseable {
         addFileMethod = compilerInstance.getClass().getMethod("addFile", Path.class, Path.class);
         processFilesMethod = compilerInstance.getClass().getMethod("processFiles");
         compileFilesMethod = compilerInstance.getClass().getMethod("compileFiles");
+        isCompiledFileMethod = compilerInstance.getClass().getMethod("isCompiledFile", Path.class);
     }
 
     @Override
@@ -96,6 +97,15 @@ public class Compiler implements AutoCloseable {
 
     public CompilationUnitCollection getCompilationUnits() {
         return files;
+    }
+
+    public boolean isCompiledFile(File classFile) {
+        try {
+            return (boolean)isCompiledFileMethod.invoke(compilerInstance, classFile.toPath());
+        } catch (Throwable ex) {
+            ExceptionHelper.throwUnchecked(ex.getCause());
+            return false;
+        }
     }
 
     private Path addFile(File sourceDir, File sourceFile) {
