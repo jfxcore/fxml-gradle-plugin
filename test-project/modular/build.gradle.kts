@@ -1,14 +1,14 @@
 buildscript {
     dependencies {
         "classpath"(files("../../build/libs/fxml-gradle-plugin-1.0-SNAPSHOT.jar"))
-        "classpath"(group = "org.jfxcore", name = "fxml-compiler", version = "0.8.0")
+        "classpath"(group = "org.jfxcore", name = "fxml-compiler", version = "0.8.1")
     }
 }
 
 plugins {
     id("java")
     id("application")
-    id("org.openjfx.javafxplugin") version "0.0.13"
+    id("org.openjfx.javafxplugin") version "0.1.0"
 }
 
 apply<org.jfxcore.gradle.CompilerPlugin>()
