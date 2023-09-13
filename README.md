@@ -1,7 +1,5 @@
 ## Getting started
 
-To use the plugin, apply the following two steps:
-
 ##### Using the <a href="https://docs.gradle.org/current/userguide/plugins.html#sec:plugins_block">plugins DSL</a>:
 
 **Groovy**
