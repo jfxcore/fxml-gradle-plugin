@@ -30,7 +30,7 @@ public final class PathHelper {
     }
 
     public File getGeneratedSourcesDir(SourceSet sourceSet) {
-        return project.getBuildDir().toPath()
+        return project.getLayout().getBuildDirectory().get().getAsFile().toPath()
             .resolve("generated/sources/fxml/java")
             .resolve(sourceSet.getName())
             .toFile();
