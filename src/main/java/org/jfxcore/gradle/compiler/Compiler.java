@@ -44,13 +44,13 @@ public class Compiler implements AutoCloseable {
         this.sourceSet = sourceSet;
         this.generatedSourcesDir = generatedSourcesDir.toPath();
 
-        List<URL> urls = new ArrayList<>(searchPath.stream().map(file -> {
+        List<URL> urls = searchPath.stream().map(file -> {
             try {
-                return new URL("file", null, file.getCanonicalPath());
+                return file.toURI().toURL();
             } catch (IOException e) {
                 return null;
             }
-        }).filter(Objects::nonNull).toList());
+        }).filter(Objects::nonNull).toList();
 
         classLoader = new CompilerClassLoader(urls.toArray(URL[]::new), getClass().getClassLoader());
         checkDependencies(classLoader);
