@@ -110,7 +110,7 @@ public abstract class ProcessMarkupTask extends DefaultTask {
 
             // Delete all .class files that may have been created by a previous compiler run.
             // This is necessary because the FXML compiler needs a 'clean slate' to work with.
-            compiler.getCompilationUnits().getClassFiles().forEach(File::delete);
+            compiler.getCompilationUnits().getMarkupClassFiles().forEach(File::delete);
         } catch (Throwable ex) {
             compiler.getExceptionHelper().handleException(ex, getLogger());
             compiler.close();

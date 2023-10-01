@@ -17,7 +17,6 @@ import org.jfxcore.gradle.tasks.ProcessMarkupTask;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -104,8 +103,8 @@ public class CompilerPlugin implements Plugin<Project> {
 
                 for (var entry : compiler.getCompilationUnits().entrySet()) {
                     for (var compilationUnit :  entry.getValue()) {
-                        if (compilationUnit.classFile().exists()
-                                && !compiler.isCompiledFile(compilationUnit.classFile())) {
+                        if (compilationUnit.markupClassFile().exists()
+                                && !compiler.isCompiledFile(compilationUnit.markupClassFile())) {
                             recompilableMarkupFilesPerSourceDirectory
                                 .computeIfAbsent(entry.getKey(), key -> new ArrayList<>())
                                 .add(compilationUnit.markupFile());
@@ -121,18 +120,20 @@ public class CompilerPlugin implements Plugin<Project> {
                 }
             }
         } catch (Throwable ex) {
-            // If the FXML compiler fails, we need to delete all generated Java files.
+            // If the FXML compiler fails, we need to delete all generated files.
             // This ensures that ProcessMarkupTask is no longer up-to-date, and it will
             // regenerate the files on the next build, causing the FXML compiler to run
             // once again.
-            for (File file : (compiler != null ? compiler.getCompilationUnits().getJavaFiles() : List.<File>of())) {
-                Path filePath = file.toPath();
-                if (Files.exists(filePath)) {
+            List<File> generatedFiles = compiler != null ?
+                compiler.getCompilationUnits().getAllGeneratedFiles() : List.of();
+
+            for (File file : generatedFiles) {
+                if (file.exists()) {
                     try {
-                        Files.delete(filePath);
+                        Files.delete(file.toPath());
                     } catch (IOException ex2) {
                         ex2.addSuppressed(ex);
-                        throw new GradleException("Cannot delete " + filePath, ex2);
+                        throw new GradleException("Cannot delete " + file, ex2);
                     }
                 }
             }
