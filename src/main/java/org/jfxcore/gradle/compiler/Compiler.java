@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Stream;
 
 public class Compiler implements AutoCloseable {
 
@@ -28,7 +29,6 @@ public class Compiler implements AutoCloseable {
     private final Project project;
     private final SourceSet sourceSet;
     private final Object compilerInstance;
-    private final Method closeMethod;
     private final Method addFileMethod;
     private final Method processFilesMethod;
     private final Method compileFilesMethod;
@@ -74,7 +74,6 @@ public class Compiler implements AutoCloseable {
             .getConstructor(Path.class, Set.class, compilerLoggerClass)
             .newInstance(generatedSourcesDir.toPath(), searchPath, compilerLogger);
 
-        closeMethod = compilerInstance.getClass().getMethod("close");
         addFileMethod = compilerInstance.getClass().getMethod("addFile", Path.class, Path.class);
         processFilesMethod = compilerInstance.getClass().getMethod("processFiles");
         compileFilesMethod = compilerInstance.getClass().getMethod("compileFiles");
@@ -84,7 +83,6 @@ public class Compiler implements AutoCloseable {
     @Override
     public void close() {
         try {
-            closeMethod.invoke(compilerInstance);
             classLoader.close();
         } catch (Throwable ex) {
             ExceptionHelper.throwUnchecked(ex.getCause());
@@ -131,9 +129,11 @@ public class Compiler implements AutoCloseable {
                     Path relFile = generatedSourcesDir.relativize(generatedFile).getParent().resolve(fileName);
                     Path classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile().toPath();
                     Path classFile = classesDir.resolve(relFile);
+                    Path codeBehindClassFile = classFile.getParent().resolve(
+                        pathHelper.getFileNameWithoutExtension(sourceFile.toPath()) + ".class");
 
-                    files.computeIfAbsent(sourceDir, key -> new ArrayList<>()).add(
-                        new CompilationUnit(sourceFile, generatedFile.toFile(), classFile.toFile()));
+                    files.computeIfAbsent(sourceDir, key -> new ArrayList<>()).add(new CompilationUnit(
+                        sourceFile, generatedFile.toFile(), classFile.toFile(), codeBehindClassFile.toFile()));
                 }
             }
         }
@@ -182,19 +182,22 @@ public class Compiler implements AutoCloseable {
     }
 
     public static final class CompilationUnitCollection extends HashMap<File, List<CompilationUnit>> {
-        public List<File> getMarkupFiles() {
-            return values().stream().flatMap(List::stream).map(CompilationUnit::markupFile).toList();
-        }
-
         public List<File> getJavaFiles() {
             return values().stream().flatMap(List::stream).map(CompilationUnit::javaFile).toList();
         }
 
-        public List<File> getClassFiles() {
-            return values().stream().flatMap(List::stream).map(CompilationUnit::classFile).toList();
+        public List<File> getMarkupClassFiles() {
+            return values().stream().flatMap(List::stream).map(CompilationUnit::markupClassFile).toList();
+        }
+
+        public List<File> getAllGeneratedFiles() {
+            return values().stream()
+                .flatMap(List::stream)
+                .flatMap(c -> Stream.of(c.javaFile, c.markupClassFile, c.codeBehindClassFile))
+                .toList();
         }
     }
 
-    public record CompilationUnit(File markupFile, File javaFile, File classFile) {}
+    public record CompilationUnit(File markupFile, File javaFile, File markupClassFile, File codeBehindClassFile) {}
 
 }
