@@ -19,7 +19,7 @@ repositories {
 
 dependencies {
     implementation(gradleApi())
-    implementation("org.jfxcore:fxml-compiler:0.8.3")
+    implementation("org.jfxcore:fxml-compiler:0.8.4")
 
     testImplementation(platform("org.junit:junit-bom:5.9.1"))
     testImplementation("org.junit.jupiter:junit-jupiter")
