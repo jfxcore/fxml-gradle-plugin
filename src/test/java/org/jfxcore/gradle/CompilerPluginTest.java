@@ -16,7 +16,7 @@ public class CompilerPluginTest {
     void nonModularProject() {
         var runner = GradleRunner.create()
             .withProjectDir(new File("test-project/non-modular"))
-            .withGradleVersion("8.0")
+            .withGradleVersion("8.5")
             .withArguments("clean", "build", "--stacktrace")
             .forwardOutput()
             .build();
@@ -28,7 +28,7 @@ public class CompilerPluginTest {
     void modularProject() {
         var runner = GradleRunner.create()
             .withProjectDir(new File("test-project/modular"))
-            .withGradleVersion("8.0")
+            .withGradleVersion("8.5")
             .withArguments("clean", "build", "--stacktrace")
             .forwardOutput()
             .build();
