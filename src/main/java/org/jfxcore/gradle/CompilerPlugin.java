@@ -1,4 +1,4 @@
-// Copyright (c) 2023, JFXcore. All rights reserved.
+// Copyright (c) 2023, 2025, JFXcore. All rights reserved.
 // Use of this source code is governed by the BSD-3-Clause license that can be found in the LICENSE file.
 
 package org.jfxcore.gradle;
@@ -13,7 +13,7 @@ import org.gradle.api.tasks.TaskCollection;
 import org.gradle.jvm.tasks.Jar;
 import org.jfxcore.gradle.compiler.Compiler;
 import org.jfxcore.gradle.compiler.CompilerService;
-import org.jfxcore.gradle.tasks.ProcessMarkupTask;
+import org.jfxcore.gradle.tasks.ProcessFxmlTask;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -53,9 +53,9 @@ public class CompilerPlugin implements Plugin<Project> {
 
     private void configureTasksForSourceSet(
             Project project, SourceSet sourceSet, List<TaskCollection<Jar>> dependentJarTasks) {
-        ProcessMarkupTask processMarkupTask = project.getTasks().create(
-            sourceSet.getTaskName(ProcessMarkupTask.VERB, ProcessMarkupTask.TARGET),
-            ProcessMarkupTask.class, task -> {
+        ProcessFxmlTask processFxmlTask = project.getTasks().create(
+            sourceSet.getTaskName(ProcessFxmlTask.VERB, ProcessFxmlTask.TARGET),
+            ProcessFxmlTask.class, task -> {
                 task.getSourceSet().set(sourceSet);
                 dependentJarTasks.forEach(task::dependsOn);
             });
@@ -69,7 +69,7 @@ public class CompilerPlugin implements Plugin<Project> {
             String compileTaskName = sourceSet.getTaskName("compile", target);
             Task compileTask = project.getTasks().findByName(compileTaskName);
             if (compileTask != null) {
-                compileTask.dependsOn(processMarkupTask);
+                compileTask.dependsOn(processFxmlTask);
             }
         }
     }
@@ -82,12 +82,12 @@ public class CompilerPlugin implements Plugin<Project> {
             compiler = CompilerService.get(project).getCompiler(sourceSet);
 
             if (compiler != null) {
-                // If we have a compiler at this point, then ProcessMarkupTask has run before.
+                // If we have a compiler at this point, then ProcessFxmlTask has run before.
                 // This means that all of our FXML class files are uncompiled, and need to be
                 // compiled by the FXML compiler.
                 compiler.compileFiles();
             } else {
-                // If we don't have a compiler, ProcessMarkupTask was skipped. We can't be sure
+                // If we don't have a compiler, ProcessFxmlTask was skipped. We can't be sure
                 // that compileJava didn't re-compile our FXML class files, which would undo
                 // the modifications that the FXML compiler has made to the files.
                 // Luckily, we can detect whether a class file was compiled by the FXML compiler
@@ -95,33 +95,33 @@ public class CompilerPlugin implements Plugin<Project> {
                 // give us a list of all FXML class files that don't include the custom attribute,
                 // and recompile only those files.
                 File genSrcDir = pathHelper.getGeneratedSourcesDir(sourceSet);
-                var markupFilesPerSourceDirectory = pathHelper.getMarkupFilesPerSourceDirectory(sourceSet);
-                var recompilableMarkupFilesPerSourceDirectory = new HashMap<File, List<File>>();
+                var fxmlFilesPerSourceDirectory = pathHelper.getFxmlFilesPerSourceDirectory(sourceSet);
+                var recompilableFxmlFilesPerSourceDirectory = new HashMap<File, List<File>>();
 
                 compiler = CompilerService.get(project).newCompiler(project, sourceSet, genSrcDir);
-                compiler.addFiles(markupFilesPerSourceDirectory);
+                compiler.addFiles(fxmlFilesPerSourceDirectory);
 
                 for (var entry : compiler.getCompilationUnits().entrySet()) {
                     for (var compilationUnit :  entry.getValue()) {
                         if (compilationUnit.markupClassFile().exists()
                                 && !compiler.isCompiledFile(compilationUnit.markupClassFile())) {
-                            recompilableMarkupFilesPerSourceDirectory
+                            recompilableFxmlFilesPerSourceDirectory
                                 .computeIfAbsent(entry.getKey(), key -> new ArrayList<>())
                                 .add(compilationUnit.markupFile());
                         }
                     }
                 }
 
-                if (recompilableMarkupFilesPerSourceDirectory.size() > 0) {
+                if (recompilableFxmlFilesPerSourceDirectory.size() > 0) {
                     compiler = CompilerService.get(project).newCompiler(project, sourceSet, genSrcDir);
-                    compiler.addFiles(recompilableMarkupFilesPerSourceDirectory);
+                    compiler.addFiles(recompilableFxmlFilesPerSourceDirectory);
                     compiler.processFiles();
                     compiler.compileFiles();
                 }
             }
         } catch (Throwable ex) {
             // If the FXML compiler fails, we need to delete all generated files.
-            // This ensures that ProcessMarkupTask is no longer up-to-date, and it will
+            // This ensures that ProcessFxmlTask is no longer up-to-date, and it will
             // regenerate the files on the next build, causing the FXML compiler to run
             // once again.
             List<File> generatedFiles = compiler != null ?

@@ -5,14 +5,14 @@
 **Groovy**
 ```groovy
 plugins {
-    id "org.jfxcore.fxmlplugin" version "0.10.0"
+    id "org.jfxcore.fxmlplugin" version "0.11.0"
 }
 ```
 
 **Kotlin**
 ```kotlin
 plugins {
-    id("org.jfxcore.fxmlplugin") version "0.10.0"
+    id("org.jfxcore.fxmlplugin") version "0.11.0"
 }
 ```
 
@@ -27,7 +27,7 @@ buildscript {
     }
   }
   dependencies {
-    classpath "org.jfxcore:fxml-gradle-plugin:0.10.0"
+    classpath "org.jfxcore:fxml-gradle-plugin:0.11.0"
   }
 }
 
@@ -43,7 +43,7 @@ buildscript {
     }
   }
   dependencies {
-    classpath("org.jfxcore:fxml-gradle-plugin:0.10.0")
+    classpath("org.jfxcore:fxml-gradle-plugin:0.11.0")
   }
 }
 
