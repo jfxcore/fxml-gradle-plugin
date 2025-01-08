@@ -1,4 +1,4 @@
-// Copyright (c) 2023, JFXcore. All rights reserved.
+// Copyright (c) 2023, 2025, JFXcore. All rights reserved.
 // Use of this source code is governed by the BSD-3-Clause license that can be found in the LICENSE file.
 
 package org.jfxcore.gradle.tasks;
@@ -26,7 +26,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
-public abstract class ProcessMarkupTask extends DefaultTask {
+public abstract class ProcessFxmlTask extends DefaultTask {
 
     public static final String VERB = "process";
     public static final String TARGET = "fxml";
@@ -35,7 +35,7 @@ public abstract class ProcessMarkupTask extends DefaultTask {
 
     private FileCollection cachedGeneratedFiles;
 
-    public ProcessMarkupTask() {
+    public ProcessFxmlTask() {
         getOutputs().upToDateWhen(spec -> getGeneratedFiles().getFiles().stream().allMatch(File::exists));
     }
 
@@ -75,7 +75,7 @@ public abstract class ProcessMarkupTask extends DefaultTask {
             compiler = CompilerService.get(project).newCompiler(
                 project, sourceSet, pathHelper.getGeneratedSourcesDir(sourceSet));
 
-            compiler.addFiles(pathHelper.getMarkupFilesPerSourceDirectory(sourceSet));
+            compiler.addFiles(pathHelper.getFxmlFilesPerSourceDirectory(sourceSet));
 
             return cachedGeneratedFiles = project.files(compiler.getCompilationUnits().getJavaFiles());
         } catch (GradleException ex) {
@@ -105,7 +105,7 @@ public abstract class ProcessMarkupTask extends DefaultTask {
         try {
             // Invoke the addFiles and processFiles stages for the source set.
             // This will generate .java source files that are placed in the generated sources directory.
-            compiler.addFiles(pathHelper.getMarkupFilesPerSourceDirectory(sourceSet));
+            compiler.addFiles(pathHelper.getFxmlFilesPerSourceDirectory(sourceSet));
             compiler.processFiles();
 
             // Delete all .class files that may have been created by a previous compiler run.
