@@ -1,22 +1,23 @@
-// Copyright (c) 2023, JFXcore. All rights reserved.
+// Copyright (c) 2023, 2025, JFXcore. All rights reserved.
 // Use of this source code is governed by the BSD-3-Clause license that can be found in the LICENSE file.
 
 package org.jfxcore.gradle.compiler;
 
 import org.gradle.api.Project;
+import org.gradle.api.file.FileCollection;
+import org.gradle.api.logging.Logger;
 import org.gradle.api.services.BuildService;
 import org.gradle.api.services.BuildServiceParameters;
-import org.gradle.api.tasks.SourceSet;
 import java.io.File;
-import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public abstract class CompilerService implements BuildService<BuildServiceParameters.None>, AutoCloseable {
 
-    private final Map<SourceSet, Compiler> compilers = new IdentityHashMap<>();
+    public static final String NAME = "org.jfxcore.gradle.compiler.CompilerService";
+
+    private final Map<FileCollection, Compiler> compilers = new IdentityHashMap<>();
 
     public static void register(Project project) {
         project.getGradle()
@@ -41,29 +42,26 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
         }
     }
 
-    public synchronized final Compiler newCompiler(Project project, SourceSet sourceSet, File generatedSourcesDir) {
-        Compiler existingCompiler = compilers.get(sourceSet);
+    public synchronized final Compiler newCompiler(FileCollection searchPath, File classesDir,
+                                                   File generatedSourcesDir, Logger logger) {
+        Compiler existingCompiler = compilers.get(searchPath);
         if (existingCompiler != null) {
             existingCompiler.close();
         }
 
-        Set<File> searchPath = new HashSet<>();
-        searchPath.addAll(sourceSet.getOutput().getFiles());
-        searchPath.addAll(sourceSet.getCompileClasspath().getFiles());
-
         try {
-            Compiler compiler = new Compiler(project, sourceSet, generatedSourcesDir, searchPath) {
+            Compiler compiler = new Compiler(classesDir, generatedSourcesDir, searchPath.getFiles(), logger) {
                 @Override
                 public void close() {
                     super.close();
 
                     synchronized (CompilerService.this) {
-                        compilers.remove(sourceSet);
+                        compilers.remove(searchPath);
                     }
                 }
             };
 
-            compilers.put(sourceSet, compiler);
+            compilers.put(searchPath, compiler);
             return compiler;
         } catch (ReflectiveOperationException ex) {
             ExceptionHelper.throwUnchecked(ex);
@@ -71,8 +69,8 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
         }
     }
 
-    public synchronized final Compiler getCompiler(SourceSet sourceSet) {
-        return compilers.get(sourceSet);
+    public synchronized final Compiler getCompiler(FileCollection searchPath) {
+        return compilers.get(searchPath);
     }
 
 }
