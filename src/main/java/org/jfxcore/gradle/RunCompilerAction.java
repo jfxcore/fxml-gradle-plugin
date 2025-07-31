@@ -10,7 +10,6 @@ import org.gradle.api.file.FileCollection;
 import org.gradle.api.logging.Logger;
 import org.gradle.api.provider.Property;
 import org.gradle.api.services.ServiceReference;
-import org.jetbrains.annotations.NotNull;
 import org.jfxcore.gradle.compiler.Compiler;
 import org.jfxcore.gradle.compiler.CompilerService;
 import javax.inject.Inject;
@@ -48,7 +47,7 @@ abstract class RunCompilerAction implements Action<Task> {
     }
 
     @Override
-    public void execute(@NotNull Task task) {
+    public void execute(Task task) {
         runCompiler(searchPath, classesDir, srcDirs, genSrcDir, logger);
     }
 
