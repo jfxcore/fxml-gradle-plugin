@@ -34,11 +34,11 @@ abstract class RunCompilerAction implements Action<Task> {
 
     @Inject
     public RunCompilerAction(
-        FileCollection searchPath,
-        File classesDir,
-        Set<File> srcDirs,
-        File genSrcDir,
-        Logger logger) {
+            FileCollection searchPath,
+            File classesDir,
+            Set<File> srcDirs,
+            File genSrcDir,
+            Logger logger) {
         this.searchPath = searchPath;
         this.classesDir = classesDir;
         this.srcDirs = srcDirs;
@@ -48,13 +48,12 @@ abstract class RunCompilerAction implements Action<Task> {
 
     @Override
     public void execute(Task task) {
-        runCompiler(searchPath, classesDir, srcDirs, genSrcDir, logger);
+        runCompiler(searchPath, classesDir, srcDirs, genSrcDir, getCompilerService().get(), logger);
     }
 
     private void runCompiler(FileCollection searchPath, File classesDir, Set<File> srcDirs,
-                             File genSrcDir, Logger logger) {
+                             File genSrcDir, CompilerService compilerService, Logger logger) {
         Compiler compiler = null;
-        CompilerService compilerService = getCompilerService().get();
 
         try {
             compiler = compilerService.getCompiler(searchPath);
