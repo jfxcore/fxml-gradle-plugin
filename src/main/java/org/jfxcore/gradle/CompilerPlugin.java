@@ -9,6 +9,7 @@ import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.file.ConfigurableFileCollection;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.TaskCollection;
@@ -77,7 +78,7 @@ public class CompilerPlugin implements Plugin<Project> {
         Set<File> srcDirs = sourceSet.getAllSource().getSrcDirs();
         File genSrcDir = PathHelper.getGeneratedSourcesDir(project, sourceSet);
 
-        ProcessFxmlTask processFxmlTask = project.getTasks().create(
+        Provider<ProcessFxmlTask> processFxmlTask = project.getTasks().register(
             sourceSet.getTaskName(ProcessFxmlTask.VERB, ProcessFxmlTask.TARGET),
             ProcessFxmlTask.class, task -> {
                 task.getSearchPath().set(searchPath);
