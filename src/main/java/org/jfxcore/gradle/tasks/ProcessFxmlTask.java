@@ -7,19 +7,18 @@ import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.services.ServiceReference;
-import org.gradle.api.tasks.IgnoreEmptyDirectories;
-import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.OutputDirectory;
-import org.gradle.api.tasks.SkipWhenEmpty;
 import org.gradle.api.tasks.TaskAction;
-import org.jfxcore.gradle.PathHelper;
 import org.jfxcore.gradle.compiler.Compiler;
 import org.jfxcore.gradle.compiler.CompilerService;
 import java.io.File;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 public abstract class ProcessFxmlTask extends DefaultTask {
 
@@ -35,10 +34,8 @@ public abstract class ProcessFxmlTask extends DefaultTask {
     @Internal
     public abstract Property<FileCollection> getSearchPath();
 
-    @InputFiles
-    @SkipWhenEmpty
-    @IgnoreEmptyDirectories
-    public abstract Property<FileCollection> getSourceDirs();
+    @Nested
+    public abstract ListProperty<FxmlSourceInfo> getFxmlSourceInfo();
 
     @OutputDirectory
     public abstract DirectoryProperty getClassesDir();
@@ -58,7 +55,11 @@ public abstract class ProcessFxmlTask extends DefaultTask {
         try {
             // Invoke the addFiles and processFiles stages for the source set.
             // This will generate .java source files that are placed in the generated sources directory.
-            compiler.addFiles(PathHelper.getFxmlFilesPerSourceDirectory(getSourceDirs().get().getFiles(), genSrcDir));
+            compiler.addFiles(getFxmlSourceInfo().get().stream()
+                    .collect(Collectors.toMap(
+                        x -> x.getSourceDir().get().getAsFile(),
+                        x -> x.getFxmlFiles().get().getFiles().stream().toList())));
+
             compiler.processFiles();
 
             // Delete all .class files that may have been created by a previous compiler run.
