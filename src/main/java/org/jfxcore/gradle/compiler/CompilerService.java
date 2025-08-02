@@ -12,6 +12,7 @@ import java.io.File;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public abstract class CompilerService implements BuildService<BuildServiceParameters.None>, AutoCloseable {
 
@@ -25,15 +26,6 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
             .registerIfAbsent(CompilerService.class.getName(), CompilerService.class, spec -> {});
     }
 
-    public static CompilerService get(Project project) {
-        return (CompilerService)project.getGradle()
-            .getSharedServices()
-            .getRegistrations()
-            .findByName(CompilerService.class.getName())
-            .getService()
-            .get();
-    }
-
     @Override
     public synchronized final void close() {
         // Make a copy of the compiler list because it will be modified by calling 'close'.
@@ -42,30 +34,36 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
         }
     }
 
-    public synchronized final Compiler newCompiler(FileCollection searchPath, File classesDir,
-                                                   File generatedSourcesDir, Logger logger) {
-        Compiler existingCompiler = compilers.get(searchPath);
-        if (existingCompiler != null) {
-            existingCompiler.close();
-        }
+    public final Compiler newCompiler(FileCollection searchPath, File classesDir,
+                                      File generatedSourcesDir, Logger logger) {
+        // The getFiles() call must be outside of the synchronized block to prevent a potential deadlock,
+        // as the method call will block until the files are resolved.
+        Set<File> searchPathFiles = searchPath.getFiles();
 
-        try {
-            Compiler compiler = new Compiler(classesDir, generatedSourcesDir, searchPath.getFiles(), logger) {
-                @Override
-                public void close() {
-                    super.close();
+        synchronized (this) {
+            Compiler existingCompiler = compilers.get(searchPath);
+            if (existingCompiler != null) {
+                existingCompiler.close();
+            }
 
-                    synchronized (CompilerService.this) {
-                        compilers.remove(searchPath);
+            try {
+                Compiler compiler = new Compiler(classesDir, generatedSourcesDir, searchPathFiles, logger) {
+                    @Override
+                    public void close() {
+                        super.close();
+
+                        synchronized (CompilerService.this) {
+                            compilers.remove(searchPath);
+                        }
                     }
-                }
-            };
+                };
 
-            compilers.put(searchPath, compiler);
-            return compiler;
-        } catch (ReflectiveOperationException ex) {
-            ExceptionHelper.throwUnchecked(ex);
-            throw new AssertionError();
+                compilers.put(searchPath, compiler);
+                return compiler;
+            } catch (ReflectiveOperationException ex) {
+                ExceptionHelper.throwUnchecked(ex);
+                throw new AssertionError();
+            }
         }
     }
 

@@ -3,12 +3,12 @@
 
 package org.jfxcore.gradle;
 
-import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
 import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.file.ConfigurableFileCollection;
+import org.gradle.api.file.FileCollection;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
@@ -19,7 +19,6 @@ import org.jfxcore.gradle.compiler.CompilerService;
 import org.jfxcore.gradle.tasks.ProcessFxmlTask;
 import java.io.File;
 import java.util.List;
-import java.util.Set;
 import java.util.stream.Stream;
 
 public class CompilerPlugin implements Plugin<Project> {
@@ -74,15 +73,15 @@ public class CompilerPlugin implements Plugin<Project> {
         searchPath.from(sourceSet.getOutput());
         searchPath.from(sourceSet.getCompileClasspath());
 
+        FileCollection srcDirs = project.files(sourceSet.getAllSource().getSrcDirs());
         File classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile();
-        Set<File> srcDirs = sourceSet.getAllSource().getSrcDirs();
         File genSrcDir = PathHelper.getGeneratedSourcesDir(project, sourceSet);
 
         Provider<ProcessFxmlTask> processFxmlTask = project.getTasks().register(
             sourceSet.getTaskName(ProcessFxmlTask.VERB, ProcessFxmlTask.TARGET),
             ProcessFxmlTask.class, task -> {
                 task.getSearchPath().set(searchPath);
-                task.getSourceDirs().set(project.files(srcDirs));
+                task.getSourceDirs().set(srcDirs);
                 task.getClassesDir().set(classesDir);
                 task.getGeneratedSourcesDir().set(genSrcDir);
                 jarTaskDependencies.forEach(task::dependsOn);
@@ -91,9 +90,10 @@ public class CompilerPlugin implements Plugin<Project> {
         // Run the FXML compiler at the end of compileJava's action list. This is important for
         // incremental compilation: Gradle will fingerprint the compiled class files after the
         // last task action is executed, i.e. after the FXML compiler has rewritten the bytecode.
-        getTask(project, sourceSet.getCompileJavaTaskName())
-            .doLast(project.getObjects().newInstance(RunCompilerAction.class,
-                searchPath, classesDir, srcDirs, genSrcDir, project.getLogger()));
+        project.getTasks().named(sourceSet.getCompileJavaTaskName(), task -> task.doLast(
+            project.getObjects().newInstance(
+                RunCompilerAction.class, searchPath, srcDirs,
+                classesDir, genSrcDir, project.getLogger())));
 
         for (String target : new String[] { "java", "kotlin", "scala", "groovy" }) {
             String compileTaskName = sourceSet.getTaskName("compile", target);
@@ -103,12 +103,4 @@ public class CompilerPlugin implements Plugin<Project> {
             }
         }
     }
-
-    @SuppressWarnings("unchecked")
-    private <T extends Task> T getTask(Project project, String name) {
-        return (T)project.getTasksByName(name, false).stream()
-            .findFirst()
-            .orElseThrow(() -> new GradleException("Task not found: " + name));
-    }
-
 }
