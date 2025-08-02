@@ -19,6 +19,7 @@ import org.jfxcore.gradle.PathHelper;
 import org.jfxcore.gradle.compiler.Compiler;
 import org.jfxcore.gradle.compiler.CompilerService;
 import java.io.File;
+import java.util.UUID;
 
 public abstract class ProcessFxmlTask extends DefaultTask {
 
@@ -28,6 +29,12 @@ public abstract class ProcessFxmlTask extends DefaultTask {
     @ServiceReference(CompilerService.NAME)
     protected abstract Property<CompilerService> getCompilerService();
 
+    @Internal
+    public abstract Property<UUID> getCompilationId();
+
+    @Internal
+    public abstract Property<FileCollection> getSearchPath();
+
     @InputFiles
     @SkipWhenEmpty
     @IgnoreEmptyDirectories
@@ -36,19 +43,17 @@ public abstract class ProcessFxmlTask extends DefaultTask {
     @OutputDirectory
     public abstract DirectoryProperty getClassesDir();
 
-    @Internal
-    public abstract Property<FileCollection> getSearchPath();
-
     @OutputDirectory
     public abstract DirectoryProperty getGeneratedSourcesDir();
 
     @TaskAction
     public void process() {
+        UUID compilationId = getCompilationId().get();
         FileCollection searchPath = getSearchPath().get();
         File classesDir = getClassesDir().get().getAsFile();
         File genSrcDir = getGeneratedSourcesDir().get().getAsFile();
         CompilerService service = getCompilerService().get();
-        Compiler compiler = service.newCompiler(searchPath, classesDir, genSrcDir, getLogger());
+        Compiler compiler = service.newCompiler(compilationId, searchPath, classesDir, genSrcDir, getLogger());
 
         try {
             // Invoke the addFiles and processFiles stages for the source set.
@@ -67,5 +72,4 @@ public abstract class ProcessFxmlTask extends DefaultTask {
 
         setDidWork(true);
     }
-
 }

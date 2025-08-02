@@ -9,16 +9,17 @@ import org.gradle.api.logging.Logger;
 import org.gradle.api.services.BuildService;
 import org.gradle.api.services.BuildServiceParameters;
 import java.io.File;
-import java.util.IdentityHashMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 public abstract class CompilerService implements BuildService<BuildServiceParameters.None>, AutoCloseable {
 
     public static final String NAME = "org.jfxcore.gradle.compiler.CompilerService";
 
-    private final Map<FileCollection, Compiler> compilers = new IdentityHashMap<>();
+    private final Map<UUID, Compiler> compilers = new HashMap<>();
 
     public static void register(Project project) {
         project.getGradle()
@@ -34,14 +35,14 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
         }
     }
 
-    public final Compiler newCompiler(FileCollection searchPath, File classesDir,
+    public final Compiler newCompiler(UUID id, FileCollection searchPath, File classesDir,
                                       File generatedSourcesDir, Logger logger) {
         // The getFiles() call must be outside of the synchronized block to prevent a potential deadlock,
         // as the method call will block until the files are resolved.
         Set<File> searchPathFiles = searchPath.getFiles();
 
         synchronized (this) {
-            Compiler existingCompiler = compilers.get(searchPath);
+            Compiler existingCompiler = compilers.get(id);
             if (existingCompiler != null) {
                 existingCompiler.close();
             }
@@ -53,12 +54,12 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
                         super.close();
 
                         synchronized (CompilerService.this) {
-                            compilers.remove(searchPath);
+                            compilers.remove(id);
                         }
                     }
                 };
 
-                compilers.put(searchPath, compiler);
+                compilers.put(id, compiler);
                 return compiler;
             } catch (ReflectiveOperationException ex) {
                 ExceptionHelper.throwUnchecked(ex);
@@ -67,8 +68,7 @@ public abstract class CompilerService implements BuildService<BuildServiceParame
         }
     }
 
-    public synchronized final Compiler getCompiler(FileCollection searchPath) {
-        return compilers.get(searchPath);
+    public synchronized final Compiler getCompiler(UUID id) {
+        return compilers.get(id);
     }
-
 }

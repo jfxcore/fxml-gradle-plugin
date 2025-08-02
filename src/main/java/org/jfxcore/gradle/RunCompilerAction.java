@@ -19,13 +19,14 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.UUID;
 
 abstract class RunCompilerAction implements Action<Task> {
 
     @ServiceReference(CompilerService.NAME)
     abstract Property<CompilerService> getCompilerService();
 
+    private final UUID compilationId;
     private final FileCollection searchPath;
     private final FileCollection srcDirs;
     private final File classesDir;
@@ -34,11 +35,13 @@ abstract class RunCompilerAction implements Action<Task> {
 
     @Inject
     public RunCompilerAction(
+            UUID compilationId,
             FileCollection searchPath,
             FileCollection srcDirs,
             File classesDir,
             File genSrcDir,
             Logger logger) {
+        this.compilationId = compilationId;
         this.searchPath = searchPath;
         this.classesDir = classesDir;
         this.srcDirs = srcDirs;
@@ -48,15 +51,11 @@ abstract class RunCompilerAction implements Action<Task> {
 
     @Override
     public void execute(Task task) {
-        runCompiler(searchPath, classesDir, srcDirs.getFiles(), genSrcDir, getCompilerService().get(), logger);
-    }
-
-    private void runCompiler(FileCollection searchPath, File classesDir, Set<File> srcDirs,
-                             File genSrcDir, CompilerService compilerService, Logger logger) {
+        CompilerService compilerService = getCompilerService().get();
         Compiler compiler = null;
 
         try {
-            compiler = compilerService.getCompiler(searchPath);
+            compiler = compilerService.getCompiler(compilationId);
 
             if (compiler != null) {
                 // If we have a compiler at this point, then ProcessFxmlTask has run before.
@@ -71,10 +70,10 @@ abstract class RunCompilerAction implements Action<Task> {
                 // since it includes a custom class file attribute. We invoke the compiler to
                 // give us a list of all FXML class files that don't include the custom attribute,
                 // and recompile only those files.
-                var fxmlFilesPerSourceDirectory = PathHelper.getFxmlFilesPerSourceDirectory(srcDirs, genSrcDir);
+                var fxmlFilesPerSourceDirectory = PathHelper.getFxmlFilesPerSourceDirectory(srcDirs.getFiles(), genSrcDir);
                 var recompilableFxmlFilesPerSourceDirectory = new HashMap<File, List<File>>();
 
-                compiler = compilerService.newCompiler(searchPath, classesDir, genSrcDir, logger);
+                compiler = compilerService.newCompiler(compilationId, searchPath, classesDir, genSrcDir, logger);
                 compiler.addFiles(fxmlFilesPerSourceDirectory);
 
                 for (var entry : compiler.getCompilationUnits().entrySet()) {
@@ -89,7 +88,7 @@ abstract class RunCompilerAction implements Action<Task> {
                 }
 
                 if (recompilableFxmlFilesPerSourceDirectory.size() > 0) {
-                    compiler = compilerService.newCompiler(searchPath, classesDir, genSrcDir, logger);
+                    compiler = compilerService.newCompiler(compilationId, searchPath, classesDir, genSrcDir, logger);
                     compiler.addFiles(recompilableFxmlFilesPerSourceDirectory);
                     compiler.processFiles();
                     compiler.compileFiles();

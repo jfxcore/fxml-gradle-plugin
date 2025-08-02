@@ -19,6 +19,7 @@ import org.jfxcore.gradle.compiler.CompilerService;
 import org.jfxcore.gradle.tasks.ProcessFxmlTask;
 import java.io.File;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 public class CompilerPlugin implements Plugin<Project> {
@@ -76,10 +77,12 @@ public class CompilerPlugin implements Plugin<Project> {
         FileCollection srcDirs = project.files(sourceSet.getAllSource().getSrcDirs());
         File classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile();
         File genSrcDir = PathHelper.getGeneratedSourcesDir(project, sourceSet);
+        UUID compilationId = UUID.randomUUID();
 
         Provider<ProcessFxmlTask> processFxmlTask = project.getTasks().register(
             sourceSet.getTaskName(ProcessFxmlTask.VERB, ProcessFxmlTask.TARGET),
             ProcessFxmlTask.class, task -> {
+                task.getCompilationId().set(compilationId);
                 task.getSearchPath().set(searchPath);
                 task.getSourceDirs().set(srcDirs);
                 task.getClassesDir().set(classesDir);
@@ -92,7 +95,7 @@ public class CompilerPlugin implements Plugin<Project> {
         // last task action is executed, i.e. after the FXML compiler has rewritten the bytecode.
         project.getTasks().named(sourceSet.getCompileJavaTaskName(), task -> task.doLast(
             project.getObjects().newInstance(
-                RunCompilerAction.class, searchPath, srcDirs,
+                RunCompilerAction.class, compilationId, searchPath, srcDirs,
                 classesDir, genSrcDir, project.getLogger())));
 
         for (String target : new String[] { "java", "kotlin", "scala", "groovy" }) {
