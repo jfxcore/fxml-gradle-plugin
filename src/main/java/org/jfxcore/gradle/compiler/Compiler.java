@@ -1,11 +1,10 @@
-// Copyright (c) 2023, JFXcore. All rights reserved.
+// Copyright (c) 2023, 2025, JFXcore. All rights reserved.
 // Use of this source code is governed by the BSD-3-Clause license that can be found in the LICENSE file.
 
 package org.jfxcore.gradle.compiler;
 
 import org.gradle.api.GradleException;
-import org.gradle.api.Project;
-import org.gradle.api.tasks.SourceSet;
+import org.gradle.api.logging.Logger;
 import org.jfxcore.gradle.PathHelper;
 import java.io.File;
 import java.io.IOException;
@@ -26,8 +25,7 @@ public class Compiler implements AutoCloseable {
     public static final String COMPILER_NAME = "org.jfxcore.compiler.Compiler";
     private static final String LOGGER_NAME = "org.jfxcore.compiler.Logger";
 
-    private final Project project;
-    private final SourceSet sourceSet;
+    private final File classesDir;
     private final Object compilerInstance;
     private final Method addFileMethod;
     private final Method processFilesMethod;
@@ -38,10 +36,9 @@ public class Compiler implements AutoCloseable {
     private final Path generatedSourcesDir;
     private final CompilationUnitCollection files = new CompilationUnitCollection();
 
-    public Compiler(Project project, SourceSet sourceSet, File generatedSourcesDir, Set<File> searchPath)
+    public Compiler(File classesDir, File generatedSourcesDir, Set<File> searchPath, Logger logger)
             throws ReflectiveOperationException {
-        this.project = project;
-        this.sourceSet = sourceSet;
+        this.classesDir = classesDir;
         this.generatedSourcesDir = generatedSourcesDir.toPath();
 
         List<URL> urls = searchPath.stream().map(file -> {
@@ -63,10 +60,10 @@ public class Compiler implements AutoCloseable {
             compilerLoggerClass.getClassLoader(),
             new Class[] {compilerLoggerClass},
             (proxy, method, args) -> switch (method.getName()) {
-                case "debug", "fine" -> { project.getLogger().info((String) args[0]); yield null; }
-                case "info" -> { project.getLogger().lifecycle((String) args[0]); yield null; }
-                case "warning" -> { project.getLogger().warn((String) args[0]); yield null; }
-                case "error" -> { project.getLogger().error((String) args[0]); yield null; }
+                case "debug", "fine" -> { logger.info((String) args[0]); yield null; }
+                case "info" -> { logger.lifecycle((String) args[0]); yield null; }
+                case "warning" -> { logger.warn((String) args[0]); yield null; }
+                case "error" -> { logger.error((String) args[0]); yield null; }
                 default -> method.invoke(proxy, args);
             });
 
@@ -116,8 +113,6 @@ public class Compiler implements AutoCloseable {
     }
 
     public void addFiles(Map<File, List<File>> markupFilesPerSourceDirectory) {
-        PathHelper pathHelper = new PathHelper(project);
-
         for (var entry : markupFilesPerSourceDirectory.entrySet()) {
             File sourceDir = entry.getKey();
             List<File> sourceFiles = entry.getValue();
@@ -125,12 +120,12 @@ public class Compiler implements AutoCloseable {
             for (File sourceFile : sourceFiles) {
                 Path generatedFile = addFile(sourceDir, sourceFile);
                 if (generatedFile != null) {
-                    String fileName = pathHelper.getFileNameWithoutExtension(generatedFile) + ".class";
+                    String fileName = PathHelper.getFileNameWithoutExtension(generatedFile) + ".class";
                     Path relFile = generatedSourcesDir.relativize(generatedFile).getParent().resolve(fileName);
-                    Path classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile().toPath();
+                    Path classesDir = this.classesDir.toPath();
                     Path classFile = classesDir.resolve(relFile);
                     Path codeBehindClassFile = classFile.getParent().resolve(
-                        pathHelper.getFileNameWithoutExtension(sourceFile.toPath()) + ".class");
+                        PathHelper.getFileNameWithoutExtension(sourceFile.toPath()) + ".class");
 
                     files.computeIfAbsent(sourceDir, key -> new ArrayList<>()).add(new CompilationUnit(
                         sourceFile, generatedFile.toFile(), classFile.toFile(), codeBehindClassFile.toFile()));

@@ -1,1 +1,1 @@
-rootProject.name = "non-modular"
+rootProject.name = "modular"
