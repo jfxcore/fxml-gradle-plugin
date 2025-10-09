@@ -6,15 +6,11 @@ package org.jfxcore.gradle;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
-import org.gradle.api.artifacts.ProjectDependency;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
-import org.gradle.api.tasks.TaskCollection;
-import org.gradle.jvm.tasks.Jar;
-import org.gradle.util.GradleVersion;
 import org.jfxcore.gradle.compiler.CompilerService;
 import org.jfxcore.gradle.tasks.FxmlSourceInfo;
 import org.jfxcore.gradle.tasks.ProcessFxmlTask;
@@ -22,7 +18,6 @@ import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.stream.Stream;
 
 public class CompilerPlugin implements Plugin<Project> {
 
@@ -40,38 +35,10 @@ public class CompilerPlugin implements Plugin<Project> {
 
         CompilerService.register(project);
 
-        List<TaskCollection<Jar>> jarTaskDependencies = getJarTaskDependencies(project);
-
-        sourceSets.configureEach(sourceSet ->
-            configureTasksForSourceSet(project, sourceSet, jarTaskDependencies));
+        sourceSets.configureEach(sourceSet -> configureTasksForSourceSet(project, sourceSet));
     }
 
-    private List<TaskCollection<Jar>> getJarTaskDependencies(Project project) {
-        Stream<ProjectDependency> projectDependencies = project.getConfigurations().stream()
-            .flatMap(config -> config.getDependencies().stream())
-            .filter(dep -> dep instanceof ProjectDependency)
-            .map(dep -> (ProjectDependency)dep);
-
-        Stream<Project> projects;
-
-        if (GradleVersion.current().compareTo(GradleVersion.version("8.11")) >= 0) {
-            projects = projectDependencies
-                .map(ProjectDependency::getPath)
-                .map(project::project)
-                .distinct();
-        } else {
-            projects = projectDependencies
-                .map(ProjectDependency::getDependencyProject)
-                .distinct();
-        }
-
-        return projects
-            .map(dp -> dp.getTasks().withType(Jar.class).matching(jar -> jar.getName().equals("jar")))
-            .toList();
-    }
-
-    private void configureTasksForSourceSet(
-            Project project, SourceSet sourceSet, List<TaskCollection<Jar>> jarTaskDependencies) {
+    private void configureTasksForSourceSet(Project project, SourceSet sourceSet) {
         ConfigurableFileCollection searchPath = project.getObjects().fileCollection();
         searchPath.from(sourceSet.getOutput());
         searchPath.from(sourceSet.getCompileClasspath());
@@ -87,6 +54,7 @@ public class CompilerPlugin implements Plugin<Project> {
             ProcessFxmlTask.class, task -> {
                 task.getCompilationId().set(compilationId);
                 task.getSearchPath().set(searchPath);
+                task.getCompileClasspath().set(sourceSet.getCompileClasspath());
                 task.getFxmlSourceInfo().set(fxmlFiles.entrySet().stream()
                     .map(entry -> {
                         FxmlSourceInfo sourceInfo = project.getObjects().newInstance(FxmlSourceInfo.class);
@@ -96,7 +64,6 @@ public class CompilerPlugin implements Plugin<Project> {
                     }).toList());
                 task.getClassesDir().set(classesDir);
                 task.getGeneratedSourcesDir().set(genSrcDir);
-                jarTaskDependencies.forEach(task::dependsOn);
             });
 
         // Run the FXML compiler at the end of compileJava's action list. This is important for
