@@ -10,6 +10,7 @@ import org.gradle.api.file.FileCollection;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.services.ServiceReference;
+import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.OutputDirectory;
@@ -33,6 +34,9 @@ public abstract class ProcessFxmlTask extends DefaultTask {
 
     @Internal
     public abstract Property<FileCollection> getSearchPath();
+
+    @InputFiles
+    public abstract Property<FileCollection> getCompileClasspath();
 
     @Nested
     public abstract ListProperty<FxmlSourceInfo> getFxmlSourceInfo();
@@ -66,8 +70,8 @@ public abstract class ProcessFxmlTask extends DefaultTask {
             // This is necessary because the FXML compiler needs a 'clean slate' to work with.
             compiler.getCompilationUnits().getMarkupClassFiles().forEach(File::delete);
         } catch (Throwable ex) {
-            compiler.getExceptionHelper().handleException(ex, getLogger());
             compiler.close();
+            compiler.getExceptionHelper().handleException(ex, getLogger());
             throw new GradleException("Internal compiler error", ex);
         }
 
