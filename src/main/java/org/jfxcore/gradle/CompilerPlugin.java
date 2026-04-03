@@ -3,12 +3,16 @@
 
 package org.jfxcore.gradle;
 
+import org.gradle.api.Action;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.Task;
+import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.plugins.AppliedPlugin;
+import org.gradle.api.plugins.PluginManager;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
@@ -23,6 +27,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class CompilerPlugin implements Plugin<Project> {
 
@@ -33,22 +38,37 @@ public class CompilerPlugin implements Plugin<Project> {
 
     @Override
     public void apply(Project project) {
-        // Add the FXML compiler as a compile-only dependency of the project to enable markup annotation processing.
+        String dependency = getCompilerDependency();
+        AtomicReference<Dependency> annotationProcessorDependency = new AtomicReference<>();
+
+        // Add the FXML compiler as a compileOnly/annotationProcessor dependency of the project
+        // to enable markup annotation processing.
         project.getPluginManager().withPlugin("java", plugin -> {
-            try (var stream = CompilerPlugin.class.getClassLoader().getResourceAsStream("plugin.properties")) {
-                var props = new Properties();
-                props.load(stream);
-
-                String dependency = "org.jfxcore:fxml-compiler:" + Objects.requireNonNull(
-                    props.getProperty("compiler-version"),
-                    "compiler-version not specified in plugin.properties");
-
+            if (!hasKotlin(project)) {
                 project.getDependencies().add("compileOnly", dependency);
-                project.getDependencies().add("annotationProcessor", dependency);
-            } catch (IOException ex) {
-                throw new RuntimeException("Failed to load plugin properties", ex);
+                annotationProcessorDependency.set(
+                    project.getDependencies().add("annotationProcessor", dependency));
             }
         });
+
+        // For Kotlin projects, we use kapt to run the annotation processor.
+        Action<AppliedPlugin> configureKotlin = plugin -> {
+            project.getPluginManager().apply("org.jetbrains.kotlin.kapt");
+
+            // If we already added annotationProcessor for Java, remove it.
+            Dependency existingDependency = annotationProcessorDependency.getAndSet(null);
+            if (existingDependency != null) {
+                project.getConfigurations()
+                    .getByName("annotationProcessor")
+                    .getDependencies()
+                    .remove(existingDependency);
+            }
+
+            project.getDependencies().add("compileOnly", dependency);
+            project.getDependencies().add("kapt", dependency);
+        };
+
+        project.getPluginManager().withPlugin("org.jetbrains.kotlin.jvm", configureKotlin);
 
         // For each source set, add the corresponding generated sources directory, so it can be
         // picked up by the Java compiler.
@@ -120,6 +140,24 @@ public class CompilerPlugin implements Plugin<Project> {
             if (compileTask != null) {
                 compileTask.dependsOn(processFxmlTask);
             }
+        }
+    }
+
+    private static boolean hasKotlin(Project project) {
+        PluginManager pm = project.getPluginManager();
+        return pm.hasPlugin("org.jetbrains.kotlin.jvm");
+    }
+
+    private static String getCompilerDependency() {
+        try (var stream = CompilerPlugin.class.getClassLoader().getResourceAsStream("plugin.properties")) {
+            var props = new Properties();
+            props.load(stream);
+
+            return "org.jfxcore:fxml-compiler:" + Objects.requireNonNull(
+                props.getProperty("compiler-version"),
+                "compiler-version not specified in plugin.properties");
+        } catch (IOException ex) {
+            throw new RuntimeException("Failed to load plugin properties", ex);
         }
     }
 }
