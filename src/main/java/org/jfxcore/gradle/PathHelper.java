@@ -1,4 +1,4 @@
-// Copyright (c) 2023, 2025, JFXcore. All rights reserved.
+// Copyright (c) 2023, 2026, JFXcore. All rights reserved.
 // Use of this source code is governed by the BSD-3-Clause license that can be found in the LICENSE file.
 
 package org.jfxcore.gradle;
@@ -20,7 +20,8 @@ import java.util.stream.Stream;
 
 public final class PathHelper {
 
-    private static final String[] FXML_EXTENSIONS = new String[] { ".fxml", ".fxmlx" };
+    public static final String[] FXML_EXTENSIONS = new String[] { ".fxml", ".fxmlx", ".fxmd" };
+    public static final String[] FXMD_EXTENSIONS = new String[] { ".fxmd" };
 
     private PathHelper() {}
 
@@ -29,6 +30,15 @@ public final class PathHelper {
             .resolve("generated/sources/fxml/java")
             .resolve(sourceSet.getName())
             .toFile();
+    }
+
+    public static List<File> getDescriptorFiles(File genSrcDir) {
+        try (Stream<Path> stream = Files.walk(genSrcDir.toPath())) {
+            return stream.filter(path -> fileFilter(path, FXMD_EXTENSIONS)).map(Path::toFile).toList();
+        } catch (IOException ex) {
+            throw new GradleException(
+                String.format("Compilation failed with %s: %s", ex.getClass().getName(), ex.getMessage()));
+        }
     }
 
     public static Map<File, List<File>> getFxmlFilesPerSourceDirectory(Set<File> srcDirs, File genSrcDir) {
@@ -44,7 +54,7 @@ public final class PathHelper {
             Path sourcePath = sourceDir.toPath();
 
             try (Stream<Path> stream = Files.isDirectory(sourcePath) ? Files.walk(sourcePath) : Stream.empty()) {
-                stream.filter(PathHelper::fileFilter).forEach(file -> files.add(file.toFile()));
+                stream.filter(path -> fileFilter(path, FXML_EXTENSIONS)).forEach(file -> files.add(file.toFile()));
             } catch (IOException ex) {
                 throw new GradleException(
                     String.format("Compilation failed with %s: %s", ex.getClass().getName(), ex.getMessage()));
@@ -62,10 +72,10 @@ public final class PathHelper {
         return name.substring(0, lastIdx < 0 ? name.length() : lastIdx);
     }
 
-    private static boolean fileFilter(Path path) {
+    private static boolean fileFilter(Path path, String[] extensions) {
         String file = path.toString().toLowerCase(Locale.ROOT);
 
-        for (String ext : FXML_EXTENSIONS) {
+        for (String ext : extensions) {
             if (file.endsWith(ext)) {
                 return true;
             }
@@ -73,5 +83,4 @@ public final class PathHelper {
 
         return false;
     }
-
 }

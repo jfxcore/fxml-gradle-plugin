@@ -1,4 +1,4 @@
-// Copyright (c) 2023, 2025, JFXcore. All rights reserved.
+// Copyright (c) 2023, 2026, JFXcore. All rights reserved.
 // Use of this source code is governed by the BSD-3-Clause license that can be found in the LICENSE file.
 
 package org.jfxcore.gradle.tasks;
@@ -9,28 +9,27 @@ import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
-import org.gradle.api.services.ServiceReference;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.TaskAction;
-import org.jfxcore.gradle.compiler.Compiler;
-import org.jfxcore.gradle.compiler.CompilerService;
+import org.jfxcore.gradle.compiler.CompilationUnit;
+import org.jfxcore.gradle.compiler.CompilationUnitDescriptor;
+import org.jfxcore.gradle.compiler.ExceptionHelper;
+import org.jfxcore.gradle.compiler.ClassGenerator;
 import java.io.File;
-import java.util.UUID;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 public abstract class ProcessFxmlTask extends DefaultTask {
 
     public static final String VERB = "process";
     public static final String TARGET = "fxml";
-
-    @ServiceReference(CompilerService.NAME)
-    protected abstract Property<CompilerService> getCompilerService();
-
-    @Internal
-    public abstract Property<UUID> getCompilationId();
 
     @Internal
     public abstract Property<FileCollection> getSearchPath();
@@ -47,31 +46,54 @@ public abstract class ProcessFxmlTask extends DefaultTask {
     @OutputDirectory
     public abstract DirectoryProperty getGeneratedSourcesDir();
 
+    @OutputDirectory
+    public abstract DirectoryProperty getIntermediateBuildDir();
+
     @TaskAction
     public void process() {
-        UUID compilationId = getCompilationId().get();
         FileCollection searchPath = getSearchPath().get();
-        File classesDir = getClassesDir().get().getAsFile();
+        File intermediateBuildDir = getIntermediateBuildDir().get().getAsFile();
         File genSrcDir = getGeneratedSourcesDir().get().getAsFile();
-        CompilerService service = getCompilerService().get();
-        Compiler compiler = service.newCompiler(compilationId, searchPath, classesDir, genSrcDir, getLogger());
+        File classesDir = getClassesDir().get().getAsFile();
+        ExceptionHelper exceptionHelper = null;
 
-        try {
-            // Invoke the addFiles and processFiles stages for the source set.
-            // This will generate .java source files that are placed in the generated sources directory.
-            compiler.addFiles(getFxmlSourceInfo().get().stream()
-                    .collect(Collectors.toMap(
-                        x -> x.getSourceDir().get().getAsFile(),
-                        x -> x.getFxmlFiles().get().getFiles().stream().toList())));
+        try (var generator = new ClassGenerator(searchPath.getFiles(), getLogger())) {
+            exceptionHelper = generator.getExceptionHelper();
 
-            compiler.processFiles();
+            Map<File, List<File>> files = getFxmlSourceInfo().get().stream()
+                .collect(Collectors.toUnmodifiableMap(
+                    x -> x.getSourceDir().get().getAsFile(),
+                    x -> x.getFxmlFiles().get().getFiles().stream().toList()));
 
-            // Delete all .class files that may have been created by a previous compiler run.
-            // This is necessary because the FXML compiler needs a 'clean slate' to work with.
-            compiler.getCompilationUnits().getMarkupClassFiles().forEach(File::delete);
+            generator.addFileSources(files);
+
+            for (CompilationUnit compilationUnit : generator.process()) {
+                CompilationUnitDescriptor descriptor = compilationUnit.descriptor();
+                File classFile = descriptor.resolveMarkupFile(classesDir, ".class");
+                Path sourceFile = descriptor.resolveMarkupFile(genSrcDir, ".java").toPath();
+
+                // Delete all .class files that may have been created by a previous compiler run.
+                // This is necessary because the FXML compiler needs a 'clean slate' to work with.
+                if (classFile.exists()) {
+                    classFile.delete();
+                }
+
+                // Generate the .java stub classes in the generated sources directory.
+                // These files will be compiled by the Java compiler before the FXML compiler runs.
+                Files.createDirectories(sourceFile.getParent());
+                Files.writeString(
+                    sourceFile,
+                    compilationUnit.generatedSourceText(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING);
+
+                // Generate the .fxmd files that are placed in the intermediate build directory.
+                // These files will be picked up by the FXML compiler after the Java compiler has finished, and
+                // contain information that the FXML compiler needs to rewrite the bytecode of the stub classes.
+                compilationUnit.descriptor().writeTo(intermediateBuildDir);
+            }
         } catch (Throwable ex) {
-            compiler.close();
-            compiler.getExceptionHelper().handleException(ex, getLogger());
+            ExceptionHelper.handleException(exceptionHelper, ex, getLogger());
             throw new GradleException("Internal compiler error", ex);
         }
 

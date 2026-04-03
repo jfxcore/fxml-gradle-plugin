@@ -1,4 +1,4 @@
-// Copyright (c) 2023, JFXcore. All rights reserved.
+// Copyright (c) 2023, 2026, JFXcore. All rights reserved.
 // Use of this source code is governed by the BSD-3-Clause license that can be found in the LICENSE file.
 
 package org.jfxcore.gradle.compiler;
@@ -45,13 +45,20 @@ public final class ExceptionHelper {
 
     public String format(RuntimeException ex) {
         try {
-            File sourceFile = (File)ex.getClass().getMethod("getSourceFile").invoke(ex);
-            String message = (String)ex.getClass().getMethod("getMessageWithSourceInfo").invoke(ex);
-            Object sourceInfo = ex.getClass().getMethod("getSourceInfo").invoke(ex);
+            Class<?> cls = ex.getClass();
+            File sourceFile = (File)cls.getMethod("getSourceFile").invoke(ex);
+            String message = (String)cls.getMethod("getMessageWithSourceInfo").invoke(ex);
+            Object sourceInfo = cls.getMethod("getSourceInfo").invoke(ex);
+            Object sourceOffset = cls.getMethod("getSourceOffset").invoke(ex);
             Object location = sourceInfo.getClass().getMethod("getStart").invoke(sourceInfo);
             int line = (int)location.getClass().getMethod("getLine").invoke(location);
+            int lineOffset = sourceOffset != null
+                ? (int)sourceOffset.getClass().getMethod("getLine").invoke(sourceOffset)
+                : 0;
 
-            return String.format("%s:%s: %s", sourceFile != null ? sourceFile.toString() : "<null>", line + 1, message);
+            return String.format("%s:%s: %s", sourceFile != null
+                ? sourceFile.toString()
+                : "<null>", line + lineOffset + 1, message);
         } catch (ReflectiveOperationException ex2) {
             throwUnchecked(ex2);
             return null;
@@ -77,4 +84,9 @@ public final class ExceptionHelper {
         throw (E)e;
     }
 
+    public static void handleException(ExceptionHelper helper, Throwable ex, Logger logger) {
+        if (helper != null) {
+            helper.handleException(ex, logger);
+        }
+    }
 }

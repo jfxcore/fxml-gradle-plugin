@@ -6,6 +6,8 @@ plugins {
 group = "org.jfxcore"
 version = findProperty("TAG_VERSION") ?: "1.0-SNAPSHOT"
 
+val compilerVersion = version
+
 java {
     withSourcesJar()
     withJavadocJar()
@@ -15,15 +17,25 @@ java {
 }
 
 repositories {
+    mavenLocal()
     mavenCentral()
 }
 
 dependencies {
     implementation(gradleApi())
-    implementation("org.jfxcore:fxml-compiler:0.12.1")
+    implementation("org.jfxcore:fxml-compiler:$compilerVersion")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.9.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+val writePluginMetadata by tasks.registering(WriteProperties::class) {
+    destinationFile.set(layout.buildDirectory.file("generated/plugin-metadata/plugin.properties"))
+    property("compiler-version", compilerVersion)
+}
+
+sourceSets.main {
+    output.dir(writePluginMetadata)
 }
 
 tasks.test {
@@ -105,4 +117,12 @@ publishing {
 
 signing {
     sign(publishing.publications["pluginMaven"])
+}
+
+tasks.withType<Sign>().configureEach {
+    val taskNames = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
+    val publishToMavenLocal = taskNames.isNotEmpty() && taskNames.all { name -> name == "publishToMavenLocal" }
+    onlyIf {
+        !publishToMavenLocal
+    }
 }
