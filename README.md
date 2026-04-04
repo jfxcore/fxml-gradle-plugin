@@ -49,3 +49,15 @@ buildscript {
 
 apply(plugin = "org.jfxcore.fxmlplugin")
 ```
+
+## Kotlin projects
+
+Kotlin projects must apply the Kotlin Symbol Processing (KSP) plugin explicitly to enable `@Markup` processing:
+
+```kotlin
+plugins {
+    kotlin("jvm") version "2.3.20"
+    id("com.google.devtools.ksp") version "2.3.6"
+    id("org.jfxcore.fxmlplugin") version "0.12.1"
+}
+```

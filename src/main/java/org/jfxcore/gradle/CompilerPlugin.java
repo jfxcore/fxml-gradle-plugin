@@ -3,87 +3,62 @@
 
 package org.jfxcore.gradle;
 
-import org.gradle.api.Action;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
-import org.gradle.api.Task;
-import org.gradle.api.artifacts.Dependency;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.plugins.AppliedPlugin;
-import org.gradle.api.plugins.PluginManager;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.compile.CompileOptions;
 import org.gradle.api.tasks.compile.JavaCompile;
-import org.jfxcore.gradle.tasks.RunCompilerAction;
+import org.gradle.process.CommandLineArgumentProvider;
 import org.jfxcore.gradle.tasks.FxmlSourceInfo;
 import org.jfxcore.gradle.tasks.ProcessFxmlTask;
+import org.jfxcore.gradle.tasks.RunCompilerAction;
+import org.jfxcore.markup.embed.Markup;
 import java.io.File;
-import java.io.IOException;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
-import java.util.Properties;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.Set;
 
-public class CompilerPlugin implements Plugin<Project> {
+public final class CompilerPlugin implements Plugin<Project> {
 
     private static final String MARKUP_ANNOTATION_PROCESSOR = "org.jfxcore.markup.processor.MarkupProcessor";
-    private static final String INTERMEDIATE_BUILD_DIR_OPT = "org.jfxcore.markup.processor.intermediateBuildDir";
-    private static final String SOURCE_DIRS_OPT = "org.jfxcore.markup.processor.sourceDirs";
-    private static final String SEARCH_PATH_OPT = "org.jfxcore.markup.processor.searchPath";
+    private static final String KOTLIN_PLUGIN_ID = "org.jetbrains.kotlin.jvm";
+    private static final String KSP_PLUGIN_ID = "com.google.devtools.ksp";
 
     @Override
     public void apply(Project project) {
-        String dependency = getCompilerDependency();
-        AtomicReference<Dependency> annotationProcessorDependency = new AtomicReference<>();
+        // For Kotlin projects, consumers must apply KSP so the symbol processor can be wired in.
+        project.getPluginManager().withPlugin(KOTLIN_PLUGIN_ID, plugin ->
+            project.afterEvaluate(ignored -> {
+                if (!project.getPluginManager().hasPlugin(KSP_PLUGIN_ID)) {
+                    project.getLogger().warn("""
+                        NOTE: The org.jfxcore.fxmlplugin was applied to {},
+                              but the Kotlin Symbol Processing plugin ({}) was not found.
+                              Apply the KSP plugin to enable @{}-based embedded markup processing.
+                        """, project.getDisplayName(), KSP_PLUGIN_ID, Markup.class.getSimpleName());
+                }
+            }));
 
-        // Add the FXML compiler as a compileOnly/annotationProcessor dependency of the project
-        // to enable markup annotation processing.
-        project.getPluginManager().withPlugin("java", plugin -> {
-            if (!hasKotlin(project)) {
-                project.getDependencies().add("compileOnly", dependency);
-                annotationProcessorDependency.set(
-                    project.getDependencies().add("annotationProcessor", dependency));
-            }
-        });
-
-        // For Kotlin projects, we use kapt to run the annotation processor.
-        Action<AppliedPlugin> configureKotlin = plugin -> {
-            project.getPluginManager().apply("org.jetbrains.kotlin.kapt");
-
-            // If we already added annotationProcessor for Java, remove it.
-            Dependency existingDependency = annotationProcessorDependency.getAndSet(null);
-            if (existingDependency != null) {
-                project.getConfigurations()
-                    .getByName("annotationProcessor")
-                    .getDependencies()
-                    .remove(existingDependency);
-            }
-
-            project.getDependencies().add("compileOnly", dependency);
-            project.getDependencies().add("kapt", dependency);
-        };
-
-        project.getPluginManager().withPlugin("org.jetbrains.kotlin.jvm", configureKotlin);
-
-        // For each source set, add the corresponding generated sources directory, so it can be
-        // picked up by the Java compiler.
+        List<File> compilerClasspathEntries = getCompilerClasspathEntries();
         SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
-
-        sourceSets.configureEach(sourceSet ->
-            sourceSet.getJava().srcDir(PathHelper.getGeneratedSourcesDir(project, sourceSet)));
-
-        sourceSets.configureEach(sourceSet -> configureTasksForSourceSet(project, sourceSet));
+        sourceSets.configureEach(sourceSet -> configureTasksForSourceSet(project, sourceSet, compilerClasspathEntries));
     }
 
-    private void configureTasksForSourceSet(Project project, SourceSet sourceSet) {
-        ConfigurableFileCollection searchPath = project.getObjects().fileCollection();
-        searchPath.from(sourceSet.getOutput());
-        searchPath.from(sourceSet.getCompileClasspath());
+    private void configureTasksForSourceSet(Project project, SourceSet sourceSet, List<File> compilerClasspathEntries) {
+        ConfigurableFileCollection processorSearchPath = project.getObjects().fileCollection();
+        processorSearchPath.from(sourceSet.getCompileClasspath());
+
+        ConfigurableFileCollection postCompileSearchPath = project.getObjects().fileCollection();
+        postCompileSearchPath.from(sourceSet.getCompileClasspath());
+        postCompileSearchPath.from(sourceSet.getOutput());
 
         FileCollection srcDirs = project.files(sourceSet.getAllSource().getSrcDirs());
         File classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile();
@@ -93,7 +68,7 @@ public class CompilerPlugin implements Plugin<Project> {
         Provider<ProcessFxmlTask> processFxmlTask = project.getTasks().register(
             sourceSet.getTaskName(ProcessFxmlTask.VERB, ProcessFxmlTask.TARGET),
             ProcessFxmlTask.class, task -> {
-                task.getSearchPath().set(searchPath);
+                task.getSearchPath().set(processorSearchPath);
                 task.getCompileClasspath().set(sourceSet.getCompileClasspath());
                 task.getFxmlSourceInfo().set(fxmlFiles.entrySet().stream()
                     .map(entry -> {
@@ -110,6 +85,11 @@ public class CompilerPlugin implements Plugin<Project> {
                            .dir("fxml/" + sourceSet.getName()));
             });
 
+        // For each source set, add the corresponding generated sources directory, so it can be
+        // picked up by the Java compiler.
+        sourceSet.getJava().srcDir(processFxmlTask.flatMap(ProcessFxmlTask::getGeneratedSourcesDir));
+
+        // The intermediate directory is used by the FXML compiler to store compilation unit descriptors.
         Provider<Directory> intermediateBuildDir = processFxmlTask.flatMap(ProcessFxmlTask::getIntermediateBuildDir);
 
         project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class, task -> {
@@ -117,12 +97,10 @@ public class CompilerPlugin implements Plugin<Project> {
 
             // Several options need to be specified as Java compiler arguments, as they are required
             // when embedded FXML documents are processed by the markup annotation processor.
-            options.getCompilerArgumentProviders().add(() -> List.of(
-                "-processor", MARKUP_ANNOTATION_PROCESSOR,
-                "-A" + SOURCE_DIRS_OPT + "=" + srcDirs.getAsPath(),
-                "-A" + SEARCH_PATH_OPT + "=" + searchPath.getAsPath(),
-                "-A" + INTERMEDIATE_BUILD_DIR_OPT + "=" + intermediateBuildDir.get().getAsFile().getAbsolutePath()
-            ));
+            options.getCompilerArgs().addAll(List.of("-processor", MARKUP_ANNOTATION_PROCESSOR));
+            options.getCompilerArgumentProviders().add(new CompilerArgumentsProvider(
+                CompilerArgumentsProvider.Target.JAVA, project.getObjects(),
+                srcDirs, processorSearchPath, intermediateBuildDir));
 
             // Run the FXML compiler at the end of compileJava's action list. This is important for
             // incremental compilation: Gradle will fingerprint the compiled class files after the
@@ -130,34 +108,86 @@ public class CompilerPlugin implements Plugin<Project> {
             task.doLast(
                 project.getObjects().newInstance(
                     RunCompilerAction.class,
-                    searchPath, intermediateBuildDir.get().getAsFile(),
+                    postCompileSearchPath, intermediateBuildDir.get().getAsFile(),
                     classesDir, project.getLogger()));
         });
 
-        for (String target : new String[] { "java", "kotlin", "scala", "groovy" }) {
+        for (String target : new String[] {"Java", "Kotlin", "Scala", "Groovy"}) {
             String compileTaskName = sourceSet.getTaskName("compile", target);
-            Task compileTask = project.getTasks().findByName(compileTaskName);
-            if (compileTask != null) {
-                compileTask.dependsOn(processFxmlTask);
-            }
+            project.getTasks().configureEach(task -> {
+                if (task.getName().equals(compileTaskName)) {
+                    task.dependsOn(processFxmlTask);
+                }
+            });
+        }
+
+        // Add the FXML compiler as a compileOnly/annotationProcessor dependency of the project
+        // to enable markup annotation processing.
+        project.getPluginManager().withPlugin("java", plugin -> {
+            addFilesDependency(project, sourceSet.getCompileOnlyConfigurationName(), compilerClasspathEntries);
+            addFilesDependency(project, sourceSet.getAnnotationProcessorConfigurationName(), compilerClasspathEntries);
+        });
+
+        project.getPluginManager().withPlugin(KSP_PLUGIN_ID, plugin -> {
+            String sourceSetName = sourceSet.getName();
+            String kspTaskName = sourceSet.getTaskName("ksp", "Kotlin");
+            String kspConfigurationName = sourceSetName.equals(SourceSet.MAIN_SOURCE_SET_NAME)
+                ? "ksp" : "ksp" + Character.toUpperCase(sourceSetName.charAt(0)) + sourceSetName.substring(1);
+
+            addFilesDependency(project, sourceSet.getCompileOnlyConfigurationName(), compilerClasspathEntries);
+            addFilesDependency(project, kspConfigurationName, compilerClasspathEntries);
+
+            project.getTasks().configureEach(task -> {
+                if (task.getName().equals(kspTaskName)) {
+                    task.dependsOn(processFxmlTask);
+                    addCommandLineArgumentProvider(task, new CompilerArgumentsProvider(
+                        CompilerArgumentsProvider.Target.KOTLIN, project.getObjects(),
+                        srcDirs, processorSearchPath, intermediateBuildDir));
+                }
+            });
+        });
+    }
+
+    private static void addCommandLineArgumentProvider(Object task, CommandLineArgumentProvider provider) {
+        try {
+            Object providers = task.getClass()
+                .getMethod("getCommandLineArgumentProviders")
+                .invoke(task);
+
+            providers.getClass()
+                .getMethod("add", Object.class)
+                .invoke(providers, provider);
+        } catch (ReflectiveOperationException ex) {
+            sneakyThrow(ex);
         }
     }
 
-    private static boolean hasKotlin(Project project) {
-        PluginManager pm = project.getPluginManager();
-        return pm.hasPlugin("org.jetbrains.kotlin.jvm");
+    private static void addFilesDependency(Project project, String configurationName, List<File> entries) {
+        if (project.getConfigurations().findByName(configurationName) != null) {
+            project.getDependencies().add(configurationName, project.files(entries));
+        }
     }
 
-    private static String getCompilerDependency() {
-        try (var stream = CompilerPlugin.class.getClassLoader().getResourceAsStream("plugin.properties")) {
-            var props = new Properties();
-            props.load(stream);
-
-            return "org.jfxcore:fxml-compiler:" + Objects.requireNonNull(
-                props.getProperty("compiler-version"),
-                "compiler-version not specified in plugin.properties");
-        } catch (IOException ex) {
-            throw new RuntimeException("Failed to load plugin properties", ex);
+    private static void addFileUrl(Set<File> entries, URL url) {
+        if (url == null || !url.getProtocol().equals("file")) {
+            return;
         }
+
+        try {
+            entries.add(Path.of(url.toURI()).toFile());
+        } catch (URISyntaxException ex) {
+            throw new RuntimeException("Failed to resolve classpath entry: " + url, ex);
+        }
+    }
+
+    private static List<File> getCompilerClasspathEntries() {
+        Set<File> entries = new LinkedHashSet<>();
+        addFileUrl(entries, Markup.class.getProtectionDomain().getCodeSource().getLocation());
+        return List.copyOf(entries);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T extends Throwable> void sneakyThrow(Throwable ex) throws T {
+        throw (T)ex;
     }
 }
