@@ -29,7 +29,7 @@ import java.util.Set;
 
 public final class CompilerPlugin implements Plugin<Project> {
 
-    private static final String MARKUP_ANNOTATION_PROCESSOR = "org.jfxcore.markup.processor.MarkupProcessor";
+    private static final String MARKUP_ANNOTATION_PROCESSOR = "org.jfxcore.compiler.MarkupProcessor";
     private static final String KOTLIN_PLUGIN_ID = "org.jetbrains.kotlin.jvm";
     private static final String KSP_PLUGIN_ID = "com.google.devtools.ksp";
 
@@ -121,12 +121,10 @@ public final class CompilerPlugin implements Plugin<Project> {
             });
         }
 
-        // Add the FXML compiler as a compileOnly/annotationProcessor dependency of the project
+        // Add the FXML compiler as an annotationProcessor dependency of the project
         // to enable markup annotation processing.
-        project.getPluginManager().withPlugin("java", plugin -> {
-            addFilesDependency(project, sourceSet.getCompileOnlyConfigurationName(), compilerClasspathEntries);
-            addFilesDependency(project, sourceSet.getAnnotationProcessorConfigurationName(), compilerClasspathEntries);
-        });
+        project.getPluginManager().withPlugin("java", plugin ->
+            addFilesDependency(project, sourceSet.getAnnotationProcessorConfigurationName(), compilerClasspathEntries));
 
         project.getPluginManager().withPlugin(KSP_PLUGIN_ID, plugin -> {
             String sourceSetName = sourceSet.getName();
@@ -134,7 +132,6 @@ public final class CompilerPlugin implements Plugin<Project> {
             String kspConfigurationName = sourceSetName.equals(SourceSet.MAIN_SOURCE_SET_NAME)
                 ? "ksp" : "ksp" + Character.toUpperCase(sourceSetName.charAt(0)) + sourceSetName.substring(1);
 
-            addFilesDependency(project, sourceSet.getCompileOnlyConfigurationName(), compilerClasspathEntries);
             addFilesDependency(project, kspConfigurationName, compilerClasspathEntries);
 
             project.getTasks().configureEach(task -> {

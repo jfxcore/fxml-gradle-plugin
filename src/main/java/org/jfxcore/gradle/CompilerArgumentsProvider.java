@@ -22,9 +22,9 @@ final class CompilerArgumentsProvider implements CommandLineArgumentProvider {
         JAVA, KOTLIN
     }
 
-    private static final String INTERMEDIATE_DIR_OPT = "org.jfxcore.markup.processor.intermediateBuildDir";
-    private static final String SOURCE_DIRS_OPT = "org.jfxcore.markup.processor.sourceDirs";
-    private static final String SEARCH_PATH_OPT = "org.jfxcore.markup.processor.searchPath";
+    private static final String INTERMEDIATE_DIR_OPT = "org.jfxcore.compiler.processor.intermediateBuildDir";
+    private static final String SOURCE_DIRS_OPT = "org.jfxcore.compiler.processor.sourceDirs";
+    private static final String SEARCH_PATH_OPT = "org.jfxcore.compiler.processor.searchPath";
 
     private final Target target;
     private final FileCollection sourceDirs;
