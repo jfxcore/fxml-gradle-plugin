@@ -6,8 +6,6 @@ plugins {
 group = "org.jfxcore"
 version = findProperty("TAG_VERSION") ?: "1.0-SNAPSHOT"
 
-val compilerVersion = version
-
 java {
     withSourcesJar()
     withJavadocJar()
@@ -17,13 +15,12 @@ java {
 }
 
 repositories {
-    mavenLocal()
     mavenCentral()
 }
 
 dependencies {
     implementation(gradleApi())
-    implementation("org.jfxcore:fxml-compiler:$compilerVersion")
+    implementation("org.jfxcore:fxml-compiler:0.13.0")
 
     testImplementation("org.junit.jupiter:junit-jupiter:5.9.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -49,8 +46,8 @@ gradlePlugin {
     plugins {
         create("fxmlPlugin") {
             id = "org.jfxcore.fxmlplugin"
-            displayName = "FXML Gradle Plugin"
-            description = "Supports creating FXML-based user interfaces with JavaFX"
+            displayName = "FXML 2.0 Gradle Plugin"
+            description = "Supports creating JavaFX user interfaces with the FXML 2.0 markup language"
             implementationClass = "org.jfxcore.gradle.CompilerPlugin"
             tags.set(listOf("javafx", "jfxcore", "fxml"))
         }
@@ -63,7 +60,7 @@ publishing {
             pom {
                 url.set("https://github.com/jfxcore/fxml-gradle-plugin")
                 name.set("fxml-gradle-plugin")
-                description.set("Supports creating FXML-based user interfaces with JavaFX")
+                description.set("Supports creating JavaFX user interfaces with the FXML 2.0 markup language")
 
                 licenses {
                     license {

@@ -20,8 +20,8 @@ import java.util.stream.Stream;
 
 public final class PathHelper {
 
-    public static final String[] FXML_EXTENSIONS = new String[] { ".fxml", ".fxmlx", ".fxmd" };
-    public static final String[] FXMD_EXTENSIONS = new String[] { ".fxmd" };
+    private static final String[] FXML_EXTENSIONS = new String[] { ".fxml", ".fxmlx" };
+    private static final String[] FXMD_EXTENSIONS = new String[] { ".fxmd" };
 
     private PathHelper() {}
 
