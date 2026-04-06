@@ -27,6 +27,7 @@ final class CompilerArgumentsProvider implements CommandLineArgumentProvider {
     private static final String SEARCH_PATH_OPT = "org.jfxcore.compiler.processor.searchPath";
 
     private final Target target;
+    private final Provider<Boolean> enabled;
     private final FileCollection sourceDirs;
     private final FileCollection searchPath;
     private final DirectoryProperty intermediateBuildDir;
@@ -34,10 +35,12 @@ final class CompilerArgumentsProvider implements CommandLineArgumentProvider {
     CompilerArgumentsProvider(
             Target target,
             ObjectFactory objects,
+            Provider<Boolean> enabled,
             FileCollection sourceDirs,
             FileCollection searchPath,
             Provider<Directory> intermediateBuildDir) {
         this.target = target;
+        this.enabled = enabled;
         this.sourceDirs = sourceDirs;
         this.searchPath = searchPath;
         this.intermediateBuildDir = objects.directoryProperty();
@@ -62,8 +65,13 @@ final class CompilerArgumentsProvider implements CommandLineArgumentProvider {
 
     @Override
     public Iterable<String> asArguments() {
+        return enabled.get() ? getArguments() : List.of();
+    }
+
+    private Iterable<String> getArguments() {
         return target == Target.JAVA
             ? List.of(
+                "-processor", CompilerPlugin.MARKUP_ANNOTATION_PROCESSOR,
                 "-A" + SOURCE_DIRS_OPT + "=" + sourceDirs.getAsPath(),
                 "-A" + SEARCH_PATH_OPT + "=" + searchPath.getAsPath(),
                 "-A" + INTERMEDIATE_DIR_OPT + "=" + intermediateBuildDir.get().getAsFile().getAbsolutePath())

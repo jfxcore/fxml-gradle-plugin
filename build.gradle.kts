@@ -29,15 +29,6 @@ dependencies {
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
-val writePluginMetadata by tasks.registering(WriteProperties::class) {
-    destinationFile.set(layout.buildDirectory.file("generated/plugin-metadata/plugin.properties"))
-    property("compiler-version", compilerVersion)
-}
-
-sourceSets.main {
-    output.dir(writePluginMetadata)
-}
-
 tasks.test {
     useJUnitPlatform()
     dependsOn(tasks.jar)

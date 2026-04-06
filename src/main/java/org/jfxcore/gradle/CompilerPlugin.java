@@ -11,48 +11,57 @@ import org.gradle.api.file.FileCollection;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
-import org.gradle.api.tasks.compile.CompileOptions;
 import org.gradle.api.tasks.compile.JavaCompile;
 import org.gradle.process.CommandLineArgumentProvider;
 import org.jfxcore.gradle.tasks.FxmlSourceInfo;
 import org.jfxcore.gradle.tasks.ProcessFxmlTask;
 import org.jfxcore.gradle.tasks.RunCompilerAction;
-import org.jfxcore.markup.embed.Markup;
 import java.io.File;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Path;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.function.Supplier;
 
 public final class CompilerPlugin implements Plugin<Project> {
 
-    private static final String MARKUP_ANNOTATION_PROCESSOR = "org.jfxcore.compiler.MarkupProcessor";
+    static final String MARKUP_ANNOTATION_PROCESSOR = "org.jfxcore.compiler.MarkupProcessor";
+
     private static final String KOTLIN_PLUGIN_ID = "org.jetbrains.kotlin.jvm";
     private static final String KSP_PLUGIN_ID = "com.google.devtools.ksp";
 
     @Override
     public void apply(Project project) {
-        // For Kotlin projects, consumers must apply KSP so the symbol processor can be wired in.
+        var extension = project.getExtensions().create(CompilerPluginExtension.NAME, CompilerPluginExtension.class);
+        extension.getAnnotationProcessing().convention(false);
+
+        // For Kotlin projects that have enabled annotation processing, consumers must apply the
+        // Kotlin Symbol Processing plugin so the symbol processor can be wired in.
         project.getPluginManager().withPlugin(KOTLIN_PLUGIN_ID, plugin ->
             project.afterEvaluate(ignored -> {
-                if (!project.getPluginManager().hasPlugin(KSP_PLUGIN_ID)) {
+                boolean annotationProcessing = extension.getAnnotationProcessing().getOrElse(false);
+                boolean hasKspPlugin = project.getPluginManager().hasPlugin(KSP_PLUGIN_ID);
+
+                if (annotationProcessing && !hasKspPlugin) {
                     project.getLogger().warn("""
-                        NOTE: The org.jfxcore.fxmlplugin was applied to {},
-                              but the Kotlin Symbol Processing plugin ({}) was not found.
-                              Apply the KSP plugin to enable @{}-based embedded markup processing.
-                        """, project.getDisplayName(), KSP_PLUGIN_ID, Markup.class.getSimpleName());
+                        WARNING: org.jfxcore.fxmlplugin is configured to use annotation processing in {},
+                                 but the Kotlin Symbol Processing plugin ({}) was not found.
+                                 Apply the KSP plugin to support annotation processing, or disable annotation processing
+                                 in the configuration block of org.jfxcore.fxmlplugin to prevent this warning.
+                        """, project.getDisplayName(), KSP_PLUGIN_ID);
                 }
             }));
 
-        List<File> compilerClasspathEntries = getCompilerClasspathEntries();
-        SourceSetContainer sourceSets = project.getExtensions().getByType(SourceSetContainer.class);
-        sourceSets.configureEach(sourceSet -> configureTasksForSourceSet(project, sourceSet, compilerClasspathEntries));
+        project.getExtensions()
+            .getByType(SourceSetContainer.class)
+            .configureEach(sourceSet ->
+                configureTasksForSourceSet(project, sourceSet, extension.getAnnotationProcessing()));
     }
 
-    private void configureTasksForSourceSet(Project project, SourceSet sourceSet, List<File> compilerClasspathEntries) {
+    private void configureTasksForSourceSet(Project project,
+                                            SourceSet sourceSet,
+                                            Provider<Boolean> annotationProcessing) {
         ConfigurableFileCollection processorSearchPath = project.getObjects().fileCollection();
         processorSearchPath.from(sourceSet.getCompileClasspath());
 
@@ -93,13 +102,11 @@ public final class CompilerPlugin implements Plugin<Project> {
         Provider<Directory> intermediateBuildDir = processFxmlTask.flatMap(ProcessFxmlTask::getIntermediateBuildDir);
 
         project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class, task -> {
-            CompileOptions options = task.getOptions();
-
             // Several options need to be specified as Java compiler arguments, as they are required
             // when embedded FXML documents are processed by the markup annotation processor.
-            options.getCompilerArgs().addAll(List.of("-processor", MARKUP_ANNOTATION_PROCESSOR));
-            options.getCompilerArgumentProviders().add(new CompilerArgumentsProvider(
-                CompilerArgumentsProvider.Target.JAVA, project.getObjects(),
+            task.getOptions().getCompilerArgumentProviders().add(new CompilerArgumentsProvider(
+                CompilerArgumentsProvider.Target.JAVA,
+                project.getObjects(), annotationProcessing,
                 srcDirs, processorSearchPath, intermediateBuildDir));
 
             // Run the FXML compiler at the end of compileJava's action list. This is important for
@@ -123,26 +130,51 @@ public final class CompilerPlugin implements Plugin<Project> {
 
         // Add the FXML compiler as an annotationProcessor dependency of the project
         // to enable markup annotation processing.
-        project.getPluginManager().withPlugin("java", plugin ->
-            addFilesDependency(project, sourceSet.getAnnotationProcessorConfigurationName(), compilerClasspathEntries));
+        addConditionalDependency(
+            project, annotationProcessing,
+            sourceSet.getAnnotationProcessorConfigurationName(),
+            CompilerPlugin::getCompilerJar);
 
+        // In Kotlin projects, we need to add the compiler to the ksp{SourceSet} configuration.
         project.getPluginManager().withPlugin(KSP_PLUGIN_ID, plugin -> {
-            String sourceSetName = sourceSet.getName();
             String kspTaskName = sourceSet.getTaskName("ksp", "Kotlin");
-            String kspConfigurationName = sourceSetName.equals(SourceSet.MAIN_SOURCE_SET_NAME)
-                ? "ksp" : "ksp" + Character.toUpperCase(sourceSetName.charAt(0)) + sourceSetName.substring(1);
-
-            addFilesDependency(project, kspConfigurationName, compilerClasspathEntries);
+            String kspConfigurationName = sourceSet.getTaskName("ksp", "");
+            addConditionalDependency(project, annotationProcessing, kspConfigurationName, CompilerPlugin::getCompilerJar);
 
             project.getTasks().configureEach(task -> {
                 if (task.getName().equals(kspTaskName)) {
                     task.dependsOn(processFxmlTask);
+
                     addCommandLineArgumentProvider(task, new CompilerArgumentsProvider(
-                        CompilerArgumentsProvider.Target.KOTLIN, project.getObjects(),
+                        CompilerArgumentsProvider.Target.KOTLIN,
+                        project.getObjects(), annotationProcessing,
                         srcDirs, processorSearchPath, intermediateBuildDir));
                 }
             });
         });
+    }
+
+    private static File getCompilerJar() {
+        try {
+            URL url = Class.forName(MARKUP_ANNOTATION_PROCESSOR).getProtectionDomain().getCodeSource().getLocation();
+            return Path.of(url.toURI()).toFile();
+        } catch (ClassNotFoundException | URISyntaxException ex) {
+            throw new RuntimeException("Failed to locate the FXML compiler JAR file", ex);
+        }
+    }
+
+    private static void addConditionalDependency(Project project,
+                                                 Provider<Boolean> condition,
+                                                 String configurationName,
+                                                 Supplier<File> file) {
+        project.getConfigurations()
+            .getByName(configurationName)
+            .getDependencies()
+            .addAllLater(
+                condition.map(enabled -> enabled
+                    ? List.of(project.getDependencies().create(project.files(file.get())))
+                    : List.of())
+        );
     }
 
     private static void addCommandLineArgumentProvider(Object task, CommandLineArgumentProvider provider) {
@@ -157,30 +189,6 @@ public final class CompilerPlugin implements Plugin<Project> {
         } catch (ReflectiveOperationException ex) {
             sneakyThrow(ex);
         }
-    }
-
-    private static void addFilesDependency(Project project, String configurationName, List<File> entries) {
-        if (project.getConfigurations().findByName(configurationName) != null) {
-            project.getDependencies().add(configurationName, project.files(entries));
-        }
-    }
-
-    private static void addFileUrl(Set<File> entries, URL url) {
-        if (url == null || !url.getProtocol().equals("file")) {
-            return;
-        }
-
-        try {
-            entries.add(Path.of(url.toURI()).toFile());
-        } catch (URISyntaxException ex) {
-            throw new RuntimeException("Failed to resolve classpath entry: " + url, ex);
-        }
-    }
-
-    private static List<File> getCompilerClasspathEntries() {
-        Set<File> entries = new LinkedHashSet<>();
-        addFileUrl(entries, Markup.class.getProtectionDomain().getCodeSource().getLocation());
-        return List.copyOf(entries);
     }
 
     @SuppressWarnings("unchecked")
