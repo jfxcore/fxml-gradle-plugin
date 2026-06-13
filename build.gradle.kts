@@ -6,6 +6,12 @@ plugins {
 group = "org.jfxcore"
 version = findProperty("TAG_VERSION") ?: "1.0-SNAPSHOT"
 
+val signingKey: String? by project
+val signingKeyName: String? by project
+val signingPassword: String? by project
+val repositoryUserName: String? by project
+val repositoryPassword: String? by project
+
 java {
     withSourcesJar()
     withJavadocJar()
@@ -89,14 +95,11 @@ publishing {
 
     repositories {
         maven {
-            if (project.hasProperty("REPOSITORY_USERNAME")
-                    && project.hasProperty("REPOSITORY_PASSWORD")
-                    && project.hasProperty("REPOSITORY_URL")) {
+            if (project.hasProperty("REPOSITORY_URL")) {
                 credentials {
-                    username = project.property("REPOSITORY_USERNAME") as String
-                    password = project.property("REPOSITORY_PASSWORD") as String
+                    username = repositoryUserName
+                    password = repositoryPassword
                 }
-
                 url = uri(project.property("REPOSITORY_URL") as String)
             }
         }
@@ -104,13 +107,10 @@ publishing {
 }
 
 signing {
-    sign(publishing.publications["pluginMaven"])
-}
-
-tasks.withType<Sign>().configureEach {
-    val taskNames = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }
-    val publishToMavenLocal = taskNames.isNotEmpty() && taskNames.all { name -> name == "publishToMavenLocal" }
-    onlyIf {
-        !publishToMavenLocal
+    setRequired {
+        gradle.taskGraph.allTasks.any { it is PublishToMavenRepository }
     }
+
+    useInMemoryPgpKeys(signingKeyName, signingKey, signingPassword)
+    sign(publishing.publications["pluginMaven"])
 }
