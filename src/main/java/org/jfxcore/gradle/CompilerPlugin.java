@@ -115,7 +115,7 @@ public final class CompilerPlugin implements Plugin<Project> {
                 project.getObjects().newInstance(
                     RunCompilerAction.class, postCompileSearchPath,
                     List.of(intermediateBuildDir, embeddedIntermediateBuildDir, embeddedKotlinIntermediateBuildDir),
-                    classesDir, project.getLogger()));
+                    classesDir));
         });
 
         for (String target : new String[] {"Java", "Kotlin", "Scala", "Groovy"}) {

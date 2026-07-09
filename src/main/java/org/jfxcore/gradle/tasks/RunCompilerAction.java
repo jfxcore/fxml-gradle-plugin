@@ -8,12 +8,10 @@ import org.gradle.api.GradleException;
 import org.gradle.api.Task;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.logging.Logger;
 import org.gradle.api.provider.Provider;
 import org.jfxcore.compiler.runner.CompilationUnitDescriptorWrapper;
 import org.jfxcore.compiler.runner.MarkupCompilerRunner;
 import org.jfxcore.compiler.runner.RunnerException;
-import org.jfxcore.compiler.runner.RunnerLogger;
 import org.jfxcore.gradle.PathHelper;
 import javax.inject.Inject;
 import java.io.File;
@@ -29,18 +27,15 @@ public abstract class RunCompilerAction implements Action<Task> {
     private final FileCollection searchPath;
     private final List<Provider<Directory>> intermediateBuildDirs;
     private final File classesDir;
-    private final RunnerLogger logger;
 
     @Inject
     public RunCompilerAction(
             FileCollection searchPath,
             List<Provider<Directory>> intermediateBuildDirs,
-            File classesDir,
-            Logger logger) {
+            File classesDir) {
         this.searchPath = searchPath;
         this.intermediateBuildDirs = intermediateBuildDirs;
         this.classesDir = classesDir;
-        this.logger = new GradleLoggerAdapter(logger);
     }
 
     @Override
@@ -48,7 +43,7 @@ public abstract class RunCompilerAction implements Action<Task> {
         Set<Path> searchPathSet = searchPath.getFiles().stream().map(File::toPath).collect(Collectors.toSet());
         Path classesPath = classesDir.toPath();
 
-        try (var compiler = new MarkupCompilerRunner(searchPathSet, logger)) {
+        try (var compiler = new MarkupCompilerRunner(searchPathSet, new GradleLoggerAdapter(task.getLogger()))) {
             Set<CompilationUnitDescriptorWrapper> compilationUnits = new HashSet<>();
 
             for (File intermediateBuildDir : intermediateBuildDirs.stream().map(p -> p.get().getAsFile()).toList()) {
