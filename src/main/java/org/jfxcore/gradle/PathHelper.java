@@ -32,9 +32,13 @@ public final class PathHelper {
             .toFile();
     }
 
-    public static List<File> getDescriptorFiles(File genSrcDir) {
+    public static List<Path> getDescriptorFiles(File genSrcDir) {
+        if (!genSrcDir.isDirectory()) {
+            return List.of();
+        }
+
         try (Stream<Path> stream = Files.walk(genSrcDir.toPath())) {
-            return stream.filter(path -> fileFilter(path, FXMD_EXTENSIONS)).map(Path::toFile).toList();
+            return stream.filter(path -> fileFilter(path, FXMD_EXTENSIONS)).toList();
         } catch (IOException ex) {
             throw new GradleException(
                 String.format("Compilation failed with %s: %s", ex.getClass().getName(), ex.getMessage()));

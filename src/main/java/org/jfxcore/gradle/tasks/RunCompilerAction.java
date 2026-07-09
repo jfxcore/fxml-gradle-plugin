@@ -6,64 +6,63 @@ package org.jfxcore.gradle.tasks;
 import org.gradle.api.Action;
 import org.gradle.api.GradleException;
 import org.gradle.api.Task;
+import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
-import org.gradle.api.logging.Logger;
+import org.gradle.api.provider.Provider;
+import org.jfxcore.compiler.runner.CompilationUnitDescriptorWrapper;
+import org.jfxcore.compiler.runner.MarkupCompilerRunner;
+import org.jfxcore.compiler.runner.RunnerException;
 import org.jfxcore.gradle.PathHelper;
-import org.jfxcore.gradle.compiler.CompilationUnitDescriptor;
-import org.jfxcore.gradle.compiler.ExceptionHelper;
-import org.jfxcore.gradle.compiler.MarkupCompiler;
 import javax.inject.Inject;
 import java.io.File;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public abstract class RunCompilerAction implements Action<Task> {
 
     private final FileCollection searchPath;
-    private final File intermediateBuildDir;
+    private final List<Provider<Directory>> intermediateBuildDirs;
     private final File classesDir;
-    private final Logger logger;
 
     @Inject
     public RunCompilerAction(
             FileCollection searchPath,
-            File intermediateBuildDir,
-            File classesDir,
-            Logger logger) {
+            List<Provider<Directory>> intermediateBuildDirs,
+            File classesDir) {
         this.searchPath = searchPath;
-        this.intermediateBuildDir = intermediateBuildDir;
+        this.intermediateBuildDirs = intermediateBuildDirs;
         this.classesDir = classesDir;
-        this.logger = logger;
     }
 
     @Override
     public void execute(Task task) {
-        ExceptionHelper exceptionHelper = null;
+        Set<Path> searchPathSet = searchPath.getFiles().stream().map(File::toPath).collect(Collectors.toSet());
         Path classesPath = classesDir.toPath();
-        Path descriptorsPath = intermediateBuildDir.toPath();
 
-        try (var compiler = new MarkupCompiler(searchPath.getFiles(), logger)) {
-            exceptionHelper = compiler.getExceptionHelper();
-            Set<CompilationUnitDescriptor> compilationUnits = new HashSet<>();
+        try (var compiler = new MarkupCompilerRunner(searchPathSet, new GradleLoggerAdapter(task.getLogger()))) {
+            Set<CompilationUnitDescriptorWrapper> compilationUnits = new HashSet<>();
 
-            for (File descriptorFile : PathHelper.getDescriptorFiles(intermediateBuildDir)) {
-                Path relDescPath = descriptorsPath.relativize(descriptorFile.toPath());
-                String fileName = PathHelper.getFileNameWithoutExtension(relDescPath);
-                Path relClassFile = relDescPath.getParent().resolve(fileName + ".class");
-                File classFile = classesPath.resolve(relClassFile).toFile();
+            for (File intermediateBuildDir : intermediateBuildDirs.stream().map(p -> p.get().getAsFile()).toList()) {
+                for (Path descriptorFile : PathHelper.getDescriptorFiles(intermediateBuildDir)) {
+                    Path relDescPath = intermediateBuildDir.toPath().relativize(descriptorFile);
+                    String fileName = PathHelper.getFileNameWithoutExtension(relDescPath);
+                    Path relClassFile = relDescPath.getParent().resolve(fileName + ".class");
+                    Path classFile = classesPath.resolve(relClassFile);
 
-                if (!classFile.exists() || !compiler.isCompiledFile(classFile)) {
-                    compilationUnits.add(compiler.loadDescriptor(descriptorFile));
+                    if (!Files.exists(classFile) || !compiler.isCompiledFile(classFile)) {
+                        compilationUnits.add(compiler.loadDescriptor(descriptorFile));
+                    }
                 }
             }
 
             compiler.compile(compilationUnits);
+        } catch (RunnerException ex) {
+            throw new GradleException(ex.getMessage());
         } catch (Throwable ex) {
-            if (exceptionHelper != null) {
-                ExceptionHelper.handleException(exceptionHelper, ex, logger);
-            }
-
             throw new GradleException("Internal compiler error", ex);
         }
     }

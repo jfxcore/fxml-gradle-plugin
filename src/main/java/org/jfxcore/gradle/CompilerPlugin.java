@@ -74,6 +74,11 @@ public final class CompilerPlugin implements Plugin<Project> {
         File genSrcDir = PathHelper.getGeneratedSourcesDir(project, sourceSet);
         Map<File, List<File>> fxmlFiles = PathHelper.getFxmlFilesPerSourceDirectory(srcDirs.getFiles(), genSrcDir);
 
+        // The intermediate directories are used by the FXML compiler to store compilation unit descriptors.
+        Provider<Directory> intermediateBuildDir = getIntermediateBuildDir(project, sourceSet, "default");
+        Provider<Directory> embeddedIntermediateBuildDir = getIntermediateBuildDir(project, sourceSet, "annotationProcessor");
+        Provider<Directory> embeddedKotlinIntermediateBuildDir = getIntermediateBuildDir(project, sourceSet, "ksp");
+
         Provider<ProcessFxmlTask> processFxmlTask = project.getTasks().register(
             sourceSet.getTaskName(ProcessFxmlTask.VERB, ProcessFxmlTask.TARGET),
             ProcessFxmlTask.class, task -> {
@@ -88,18 +93,12 @@ public final class CompilerPlugin implements Plugin<Project> {
                     }).toList());
                 task.getClassesDir().set(classesDir);
                 task.getGeneratedSourcesDir().set(genSrcDir);
-                task.getIntermediateBuildDir().convention(
-                    project.getLayout()
-                           .getBuildDirectory()
-                           .dir("fxml/" + sourceSet.getName()));
+                task.getIntermediateBuildDir().convention(intermediateBuildDir);
             });
 
         // For each source set, add the corresponding generated sources directory, so it can be
         // picked up by the Java compiler.
         sourceSet.getJava().srcDir(processFxmlTask.flatMap(ProcessFxmlTask::getGeneratedSourcesDir));
-
-        // The intermediate directory is used by the FXML compiler to store compilation unit descriptors.
-        Provider<Directory> intermediateBuildDir = processFxmlTask.flatMap(ProcessFxmlTask::getIntermediateBuildDir);
 
         project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class, task -> {
             // Several options need to be specified as Java compiler arguments, as they are required
@@ -107,16 +106,16 @@ public final class CompilerPlugin implements Plugin<Project> {
             task.getOptions().getCompilerArgumentProviders().add(new CompilerArgumentsProvider(
                 CompilerArgumentsProvider.Target.JAVA,
                 project.getObjects(), annotationProcessing,
-                srcDirs, processorSearchPath, intermediateBuildDir));
+                srcDirs, processorSearchPath, embeddedIntermediateBuildDir));
 
             // Run the FXML compiler at the end of compileJava's action list. This is important for
             // incremental compilation: Gradle will fingerprint the compiled class files after the
             // last task action is executed, i.e. after the FXML compiler has rewritten the bytecode.
             task.doLast(
                 project.getObjects().newInstance(
-                    RunCompilerAction.class,
-                    postCompileSearchPath, intermediateBuildDir.get().getAsFile(),
-                    classesDir, project.getLogger()));
+                    RunCompilerAction.class, postCompileSearchPath,
+                    List.of(intermediateBuildDir, embeddedIntermediateBuildDir, embeddedKotlinIntermediateBuildDir),
+                    classesDir));
         });
 
         for (String target : new String[] {"Java", "Kotlin", "Scala", "Groovy"}) {
@@ -148,10 +147,17 @@ public final class CompilerPlugin implements Plugin<Project> {
                     addCommandLineArgumentProvider(task, new CompilerArgumentsProvider(
                         CompilerArgumentsProvider.Target.KOTLIN,
                         project.getObjects(), annotationProcessing,
-                        srcDirs, processorSearchPath, intermediateBuildDir));
+                        srcDirs, processorSearchPath, embeddedKotlinIntermediateBuildDir));
+
+                    project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class)
+                           .configure(compileJava -> compileJava.mustRunAfter(task));
                 }
             });
         });
+    }
+
+    private Provider<Directory> getIntermediateBuildDir(Project project, SourceSet sourceSet, String name) {
+        return project.getLayout().getBuildDirectory().dir("fxml/" + name + "/" + sourceSet.getName());
     }
 
     private static File getCompilerJar() {
@@ -174,7 +180,7 @@ public final class CompilerPlugin implements Plugin<Project> {
                 condition.map(enabled -> enabled
                     ? List.of(project.getDependencies().create(project.files(file.get())))
                     : List.of())
-        );
+            );
     }
 
     private static void addCommandLineArgumentProvider(Object task, CommandLineArgumentProvider provider) {

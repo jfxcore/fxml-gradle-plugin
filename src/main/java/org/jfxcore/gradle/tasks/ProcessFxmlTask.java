@@ -14,16 +14,17 @@ import org.gradle.api.tasks.Internal;
 import org.gradle.api.tasks.Nested;
 import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.TaskAction;
-import org.jfxcore.gradle.compiler.CompilationUnit;
-import org.jfxcore.gradle.compiler.CompilationUnitDescriptor;
-import org.jfxcore.gradle.compiler.ExceptionHelper;
-import org.jfxcore.gradle.compiler.ClassGenerator;
+import org.jfxcore.compiler.runner.ClassGeneratorRunner;
+import org.jfxcore.compiler.runner.CompilationUnitDescriptorWrapper;
+import org.jfxcore.compiler.runner.CompilationUnitWrapper;
+import org.jfxcore.compiler.runner.RunnerException;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 public abstract class ProcessFxmlTask extends DefaultTask {
@@ -51,24 +52,21 @@ public abstract class ProcessFxmlTask extends DefaultTask {
 
     @TaskAction
     public void process() {
-        FileCollection searchPath = getSearchPath().get();
+        Set<Path> searchPath = getSearchPath().get().getFiles().stream().map(File::toPath).collect(Collectors.toSet());
         File intermediateBuildDir = getIntermediateBuildDir().get().getAsFile();
         File genSrcDir = getGeneratedSourcesDir().get().getAsFile();
         File classesDir = getClassesDir().get().getAsFile();
-        ExceptionHelper exceptionHelper = null;
 
-        try (var generator = new ClassGenerator(searchPath.getFiles(), getLogger())) {
-            exceptionHelper = generator.getExceptionHelper();
-
-            Map<File, List<File>> files = getFxmlSourceInfo().get().stream()
+        try (var generator = new ClassGeneratorRunner(searchPath, new GradleLoggerAdapter(getLogger()))) {
+            Map<Path, List<Path>> files = getFxmlSourceInfo().get().stream()
                 .collect(Collectors.toUnmodifiableMap(
-                    x -> x.getSourceDir().get().getAsFile(),
-                    x -> x.getFxmlFiles().get().getFiles().stream().toList()));
+                    x -> x.getSourceDir().get().getAsFile().toPath(),
+                    x -> x.getFxmlFiles().get().getFiles().stream().map(File::toPath).toList()));
 
             generator.addFileSources(files);
 
-            for (CompilationUnit compilationUnit : generator.process()) {
-                CompilationUnitDescriptor descriptor = compilationUnit.descriptor();
+            for (CompilationUnitWrapper compilationUnit : generator.process()) {
+                CompilationUnitDescriptorWrapper descriptor = compilationUnit.descriptor();
                 File classFile = descriptor.resolveMarkupFile(classesDir, ".class");
                 Path sourceFile = descriptor.resolveMarkupFile(genSrcDir, ".java").toPath();
 
@@ -92,8 +90,9 @@ public abstract class ProcessFxmlTask extends DefaultTask {
                 // contain information that the FXML compiler needs to rewrite the bytecode of the stub classes.
                 compilationUnit.descriptor().writeTo(intermediateBuildDir);
             }
+        } catch (RunnerException ex) {
+            throw new GradleException(ex.getMessage());
         } catch (Throwable ex) {
-            ExceptionHelper.handleException(exceptionHelper, ex, getLogger());
             throw new GradleException("Internal compiler error", ex);
         }
 
