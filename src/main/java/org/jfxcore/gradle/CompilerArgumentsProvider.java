@@ -71,7 +71,6 @@ final class CompilerArgumentsProvider implements CommandLineArgumentProvider {
     private Iterable<String> getArguments() {
         return target == Target.JAVA
             ? List.of(
-                "-processor", CompilerPlugin.MARKUP_ANNOTATION_PROCESSOR,
                 "-A" + SOURCE_DIRS_OPT + "=" + sourceDirs.getAsPath(),
                 "-A" + SEARCH_PATH_OPT + "=" + searchPath.getAsPath(),
                 "-A" + INTERMEDIATE_DIR_OPT + "=" + intermediateBuildDir.get().getAsFile().getAbsolutePath())
