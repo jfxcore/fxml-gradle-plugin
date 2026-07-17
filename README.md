@@ -49,3 +49,27 @@ buildscript {
 
 apply(plugin = "org.jfxcore.fxmlplugin")
 ```
+
+## Configuration
+
+This plugin registers an extension named `fxml` with the following configuration options:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `annotationProcessing` | `false` | Specifies whether the plugin processes the `@ComponentView` annotation. When enabled, the FXML compiler is added to the annotation processor configuration of each source set. Kotlin projects must also apply the Kotlin Symbol Processing (KSP) plugin to enable annotation processing. |
+| `sourceFileExtensions` | `["fxml"]` | Specifies the file extensions used to select FXML source files for compilation. |
+
+### Gradual migration of legacy FXML to FXML/2
+
+Specifying a custom file extension can be used to gradually migrate a project containing legacy FXML files to FXML/2.
+For example, the following configuration selects `.fxmlx` files for compilation and leaves `.fxml` files unprocessed
+by the FXML compiler:
+
+```kotlin
+fxml {
+    sourceFileExtensions = listOf("fxmlx")
+}
+```
+
+It is advisable to use the `fxmlx` extension in migration scenarios, as it is also recognized by the
+[FXML/2 IntelliJ IDEA Plugin](https://plugins.jetbrains.com/plugin/32337-fxml-2-for-javafx).

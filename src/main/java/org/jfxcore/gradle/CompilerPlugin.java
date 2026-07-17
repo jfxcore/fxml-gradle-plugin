@@ -21,7 +21,6 @@ import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Supplier;
 
 public final class CompilerPlugin implements Plugin<Project> {
@@ -30,11 +29,13 @@ public final class CompilerPlugin implements Plugin<Project> {
 
     private static final String KOTLIN_PLUGIN_ID = "org.jetbrains.kotlin.jvm";
     private static final String KSP_PLUGIN_ID = "com.google.devtools.ksp";
+    private static final String FXML_EXTENSION = ".fxml";
 
     @Override
     public void apply(Project project) {
         var extension = project.getExtensions().create(CompilerPluginExtension.NAME, CompilerPluginExtension.class);
         extension.getAnnotationProcessing().convention(false);
+        extension.getSourceFileExtensions().convention(List.of(FXML_EXTENSION));
 
         // For Kotlin projects that have enabled annotation processing, consumers must apply the
         // Kotlin Symbol Processing plugin so the symbol processor can be wired in.
@@ -55,13 +56,14 @@ public final class CompilerPlugin implements Plugin<Project> {
 
         project.getExtensions()
             .getByType(SourceSetContainer.class)
-            .configureEach(sourceSet ->
-                configureTasksForSourceSet(project, sourceSet, extension.getAnnotationProcessing()));
+            .configureEach(sourceSet -> configureTasksForSourceSet(
+                project, sourceSet, extension.getAnnotationProcessing(), extension.getSourceFileExtensions()));
     }
 
     private void configureTasksForSourceSet(Project project,
                                             SourceSet sourceSet,
-                                            Provider<Boolean> annotationProcessing) {
+                                            Provider<Boolean> annotationProcessing,
+                                            Provider<List<String>> sourceFileExtensions) {
         ConfigurableFileCollection processorSearchPath = project.getObjects().fileCollection();
         processorSearchPath.from(sourceSet.getCompileClasspath());
 
@@ -72,7 +74,6 @@ public final class CompilerPlugin implements Plugin<Project> {
         FileCollection srcDirs = project.files(sourceSet.getAllSource().getSrcDirs());
         File classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile();
         File genSrcDir = PathHelper.getGeneratedSourcesDir(project, sourceSet);
-        Map<File, List<File>> fxmlFiles = PathHelper.getFxmlFilesPerSourceDirectory(srcDirs.getFiles(), genSrcDir);
 
         // The intermediate directories are used by the FXML compiler to store compilation unit descriptors.
         Provider<Directory> intermediateBuildDir = getIntermediateBuildDir(project, sourceSet, "default");
@@ -84,8 +85,10 @@ public final class CompilerPlugin implements Plugin<Project> {
             ProcessFxmlTask.class, task -> {
                 task.getSearchPath().set(processorSearchPath);
                 task.getCompileClasspath().set(sourceSet.getCompileClasspath());
-                task.getFxmlSourceInfo().set(fxmlFiles.entrySet().stream()
-                    .map(entry -> {
+                task.getFxmlSourceInfo().set(
+                    PathHelper.getFxmlFilesPerSourceDirectory(
+                        srcDirs.getFiles(), genSrcDir, sourceFileExtensions.get()
+                    ).entrySet().stream().map(entry -> {
                         FxmlSourceInfo sourceInfo = project.getObjects().newInstance(FxmlSourceInfo.class);
                         sourceInfo.getSourceDir().set(entry.getKey());
                         sourceInfo.getFxmlFiles().set(project.files(entry.getValue()));
