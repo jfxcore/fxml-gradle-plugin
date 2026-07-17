@@ -54,16 +54,12 @@ apply(plugin = "org.jfxcore.fxmlplugin")
 
 This plugin registers an extension named `fxml` with the following configuration options:
 
-### `annotationProcessing`
+| Option | Default | Description |
+| --- | --- | --- |
+| `annotationProcessing` | `false` | Specifies whether the plugin processes the `@ComponentView` annotation. When enabled, the FXML compiler is added to the annotation processor configuration of each source set. Kotlin projects must also apply the Kotlin Symbol Processing (KSP) plugin to enable annotation processing. |
+| `sourceFileExtensions` | `["fxml"]` | Specifies the file extensions used to select FXML source files for compilation. |
 
-Specifies whether the plugin processes the `@ComponentView` annotation. The default value is `false`.
-
-When this option is enabled, the FXML compiler is added to the annotation processor configuration of each source set.
-Kotlin projects must also apply the Kotlin Symbol Processing (KSP) plugin to enable annotation processing.
-
-### `sourceFileExtensions`
-
-Specifies the file extensions used to select FXML source files for compilation. The default value is `fxml`.
+### Gradual migration of legacy FXML to FXML/2
 
 Specifying a custom file extension can be used to gradually migrate a project containing legacy FXML files to FXML/2.
 For example, the following configuration selects `.fxmlx` files for compilation and leaves `.fxml` files unprocessed
