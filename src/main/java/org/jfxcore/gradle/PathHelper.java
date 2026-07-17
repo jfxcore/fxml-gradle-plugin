@@ -20,8 +20,7 @@ import java.util.stream.Stream;
 
 public final class PathHelper {
 
-    private static final String[] FXML_EXTENSIONS = new String[] { ".fxml", ".fxmlx" };
-    private static final String[] FXMD_EXTENSIONS = new String[] { ".fxmd" };
+    private static final String[] FXMD_EXTENSION = new String[] { ".fxmd" };
 
     private PathHelper() {}
 
@@ -38,15 +37,25 @@ public final class PathHelper {
         }
 
         try (Stream<Path> stream = Files.walk(genSrcDir.toPath())) {
-            return stream.filter(path -> fileFilter(path, FXMD_EXTENSIONS)).toList();
+            return stream.filter(path -> fileFilter(path, FXMD_EXTENSION)).toList();
         } catch (IOException ex) {
             throw new GradleException(
                 String.format("Compilation failed with %s: %s", ex.getClass().getName(), ex.getMessage()));
         }
     }
 
-    public static Map<File, List<File>> getFxmlFilesPerSourceDirectory(Set<File> srcDirs, File genSrcDir) {
+    public static Map<File, List<File>> getFxmlFilesPerSourceDirectory(Set<File> srcDirs, File genSrcDir,
+                                                                       List<String> fileExtensions) {
         Map<File, List<File>> result = new HashMap<>();
+        String[] extensions = new String[fileExtensions.size()];
+
+        for (int i = 0; i < fileExtensions.size(); ++i) {
+            if (!fileExtensions.get(i).startsWith(".")) {
+                extensions[i] = "." + fileExtensions.get(i).toLowerCase(Locale.ROOT);
+            } else {
+                extensions[i] = fileExtensions.get(i).toLowerCase(Locale.ROOT);
+            }
+        }
 
         for (File sourceDir : srcDirs) {
             // If the current source directory is a generated sources directory, skip it.
@@ -58,7 +67,7 @@ public final class PathHelper {
             Path sourcePath = sourceDir.toPath();
 
             try (Stream<Path> stream = Files.isDirectory(sourcePath) ? Files.walk(sourcePath) : Stream.empty()) {
-                stream.filter(path -> fileFilter(path, FXML_EXTENSIONS)).forEach(file -> files.add(file.toFile()));
+                stream.filter(path -> fileFilter(path, extensions)).forEach(file -> files.add(file.toFile()));
             } catch (IOException ex) {
                 throw new GradleException(
                     String.format("Compilation failed with %s: %s", ex.getClass().getName(), ex.getMessage()));

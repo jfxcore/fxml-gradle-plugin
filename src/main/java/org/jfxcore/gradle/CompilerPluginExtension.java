@@ -3,6 +3,7 @@
 
 package org.jfxcore.gradle;
 
+import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 
 public abstract class CompilerPluginExtension {
@@ -13,4 +14,9 @@ public abstract class CompilerPluginExtension {
      * Controls whether the plugin processes the {@code ComponentView} annotation.
      */
     public abstract Property<Boolean> getAnnotationProcessing();
+
+    /**
+     * Specifies the file extensions used to select FXML source files for compilation.
+     */
+    public abstract ListProperty<String> getSourceFileExtensions();
 }
