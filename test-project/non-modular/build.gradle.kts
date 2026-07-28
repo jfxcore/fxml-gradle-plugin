@@ -1,7 +1,7 @@
 buildscript {
     dependencies {
         "classpath"(files("../../build/libs/fxml-gradle-plugin-1.0-SNAPSHOT.jar"))
-        "classpath"("org.jfxcore:fxml-compiler:0.15.0")
+        "classpath"("org.jfxcore:fxml-compiler:0.15.1")
     }
 }
 
