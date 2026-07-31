@@ -1,0 +1,3 @@
+<?import javafx.scene.layout.*?>
+
+<Pane xmlns="http://javafx.com/javafx" xmlns:fx="http://jfxcore.org/fxml/2.0" fx:subclass="test.OldName"/>

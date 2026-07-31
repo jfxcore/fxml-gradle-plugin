@@ -12,6 +12,7 @@ import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.compile.JavaCompile;
+import org.gradle.api.tasks.util.PatternSet;
 import org.gradle.process.CommandLineArgumentProvider;
 import org.jfxcore.gradle.tasks.FxmlSourceInfo;
 import org.jfxcore.gradle.tasks.ProcessFxmlTask;
@@ -85,13 +86,29 @@ public final class CompilerPlugin implements Plugin<Project> {
             ProcessFxmlTask.class, task -> {
                 task.getSearchPath().set(processorSearchPath);
                 task.getCompileClasspath().set(sourceSet.getCompileClasspath());
-                task.getFxmlSourceInfo().set(
-                    PathHelper.getFxmlFilesPerSourceDirectory(
-                        srcDirs.getFiles(), genSrcDir, sourceFileExtensions.get()
-                    ).entrySet().stream().map(entry -> {
+
+                // Keep the task inputs live so additions and renames are visible when the configuration cache is
+                // reused. Enumerating the directory here would freeze the set of file paths in the cached model.
+                PatternSet fxmlFilePatterns = new PatternSet();
+                fxmlFilePatterns.setCaseSensitive(false);
+
+                List<String> includes = sourceFileExtensions.get().stream()
+                    .map(extension -> extension.startsWith(".") ? extension : "." + extension)
+                    .map(extension -> "**/*" + extension)
+                    .toList();
+
+                if (includes.isEmpty()) {
+                    fxmlFilePatterns.exclude("**/*");
+                } else {
+                    fxmlFilePatterns.include(includes);
+                }
+
+                task.getFxmlSourceInfo().set(srcDirs.getFiles().stream()
+                    .filter(sourceDir -> !genSrcDir.equals(sourceDir))
+                    .map(sourceDir -> {
                         FxmlSourceInfo sourceInfo = project.getObjects().newInstance(FxmlSourceInfo.class);
-                        sourceInfo.getSourceDir().set(entry.getKey());
-                        sourceInfo.getFxmlFiles().set(project.files(entry.getValue()));
+                        sourceInfo.getSourceDir().set(sourceDir);
+                        sourceInfo.getFxmlFiles().set(project.fileTree(sourceDir).matching(fxmlFilePatterns));
                         return sourceInfo;
                     }).toList());
                 task.getClassesDir().set(classesDir);
