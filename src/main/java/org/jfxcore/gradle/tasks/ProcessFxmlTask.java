@@ -7,6 +7,7 @@ import org.gradle.api.DefaultTask;
 import org.gradle.api.GradleException;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.file.FileSystemOperations;
 import org.gradle.api.provider.ListProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.InputFiles;
@@ -18,6 +19,7 @@ import org.jfxcore.compiler.runner.ClassGeneratorRunner;
 import org.jfxcore.compiler.runner.CompilationUnitDescriptorWrapper;
 import org.jfxcore.compiler.runner.CompilationUnitWrapper;
 import org.jfxcore.compiler.runner.RunnerException;
+import javax.inject.Inject;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -50,6 +52,9 @@ public abstract class ProcessFxmlTask extends DefaultTask {
     @OutputDirectory
     public abstract DirectoryProperty getIntermediateBuildDir();
 
+    @Inject
+    protected abstract FileSystemOperations getFileSystemOperations();
+
     @TaskAction
     public void process() {
         Set<Path> searchPath = getSearchPath().get().getFiles().stream().map(File::toPath).collect(Collectors.toSet());
@@ -58,6 +63,13 @@ public abstract class ProcessFxmlTask extends DefaultTask {
         File classesDir = getClassesDir().get().getAsFile();
 
         try (var generator = new ClassGeneratorRunner(searchPath, new GradleLoggerAdapter(getLogger()))) {
+            // The generator processes the complete set of FXML files on every invocation. Rebuild its dedicated
+            // output directories as well, otherwise outputs for removed or renamed FXML files remain discoverable
+            // by the Java compiler and the post-compilation FXML compiler action.
+            getFileSystemOperations().delete(spec -> spec.delete(genSrcDir, intermediateBuildDir));
+            Files.createDirectories(genSrcDir.toPath());
+            Files.createDirectories(intermediateBuildDir.toPath());
+
             Map<Path, List<Path>> files = getFxmlSourceInfo().get().stream()
                 .collect(Collectors.toUnmodifiableMap(
                     x -> x.getSourceDir().get().getAsFile().toPath(),
