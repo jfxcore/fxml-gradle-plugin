@@ -150,7 +150,7 @@ public final class CompilerPlugin implements Plugin<Project> {
             // Include the descriptor contents in JavaCompile's identity so Gradle cannot restore bytecode rewritten
             // for an older descriptor from the build cache and skip this task's post-compile action.
             task.getInputs().dir(intermediateBuildDir)
-                .withPropertyName("fxmlDescriptors")
+                .withPropertyName("org.jfxcore.compiler.fxmlDescriptors")
                 .withPathSensitivity(PathSensitivity.RELATIVE);
 
             // Several options need to be specified as Java compiler arguments, as they are required
@@ -192,11 +192,16 @@ public final class CompilerPlugin implements Plugin<Project> {
             String kspConfigurationName = sourceSet.getTaskName("ksp", "");
             addConditionalDependency(project, annotationProcessing, kspConfigurationName, CompilerPlugin::getCompilerJar);
 
-            project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class)
+            // KSP generates Java stubs and FXML descriptors that must exist before Java compilation. mustRunAfter
+            // establishes that order whenever both tasks are scheduled without adding a new task dependency. The
+            // descriptors are also inputs of compileJava because markup can change while its generated Java stub
+            // remains identical, including them prevents Gradle from reusing bytecode rewritten for older markup.
+            project.getTasks()
+                .named(sourceSet.getCompileJavaTaskName(), JavaCompile.class)
                 .configure(compileJava -> {
                     compileJava.mustRunAfter(kspTaskName);
                     compileJava.getInputs().dir(embeddedKotlinIntermediateBuildDir)
-                        .withPropertyName("kspFxmlDescriptors")
+                        .withPropertyName("org.jfxcore.compiler.kspFxmlDescriptors")
                         .withPathSensitivity(PathSensitivity.RELATIVE);
                 });
 
