@@ -8,6 +8,7 @@ import org.gradle.api.Project;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
+import org.gradle.api.file.FileTree;
 import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
@@ -106,9 +107,14 @@ public final class CompilerPlugin implements Plugin<Project> {
                 task.getFxmlSourceInfo().set(srcDirs.getFiles().stream()
                     .filter(sourceDir -> !genSrcDir.equals(sourceDir))
                     .map(sourceDir -> {
+                        // Find FXML files lazily so changes are detected when the configuration cache is reused.
+                        // Flatten the FileTree so Gradle tracks only those files. Tracking the source directory
+                        // tree could overlap with outputs of other tasks and cause task-dependency errors.
+                        FileTree fxmlFileTree = project.fileTree(sourceDir).matching(fxmlFilePatterns);
+                        FileCollection fxmlFiles = project.files(fxmlFileTree.getElements());
                         FxmlSourceInfo sourceInfo = project.getObjects().newInstance(FxmlSourceInfo.class);
+                        sourceInfo.getFxmlFiles().set(fxmlFiles);
                         sourceInfo.getSourceDir().set(sourceDir);
-                        sourceInfo.getFxmlFiles().set(project.fileTree(sourceDir).matching(fxmlFilePatterns));
                         return sourceInfo;
                     }).toList());
                 task.getClassesDir().set(classesDir);
