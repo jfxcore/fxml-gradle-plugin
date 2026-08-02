@@ -23,7 +23,7 @@ class IncrementalLifecycleTest {
 
     @Test
     void tracksTheCompleteIncrementalAndCacheLifecycle() throws IOException {
-        copyFixture("fixtures/lifecycle", projectDir);
+        copyFixture("lifecycle", projectDir);
         Paths paths = new Paths(projectDir);
 
         BuildResult initial = build(projectDir, "classes");

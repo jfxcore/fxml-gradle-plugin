@@ -20,7 +20,7 @@ class CompilerErrorRecoveryTest {
 
     @Test
     void reportsUsefulErrorsAndRecoversWithoutClean() throws IOException {
-        copyFixture("fixtures/lifecycle", projectDir);
+        copyFixture("lifecycle", projectDir);
         Path fxml = projectDir.resolve("src/main/java/test/MainView.fxmlx");
 
         Files.writeString(fxml, "<Pane");

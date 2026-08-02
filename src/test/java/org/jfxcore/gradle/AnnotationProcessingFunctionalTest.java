@@ -20,7 +20,7 @@ class AnnotationProcessingFunctionalTest {
 
     @Test
     void annotationProcessingIsConditionalAndSourceSetIsolated() throws IOException {
-        copyFixture("fixtures/annotation-processing", projectDir);
+        copyFixture("annotation-processing", projectDir);
 
         var disabled = build(projectDir, "classes", "integrationTestClasses");
 
