@@ -28,6 +28,7 @@ dependencies {
     implementation(gradleApi())
     implementation("org.jfxcore:fxml-compiler:0.15.1")
 
+    testImplementation(gradleTestKit())
     testImplementation("org.junit.jupiter:junit-jupiter:5.9.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -35,6 +36,11 @@ dependencies {
 tasks.test {
     useJUnitPlatform()
     dependsOn(tasks.jar)
+    maxParallelForks = 1
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion.set(JavaLanguageVersion.of(17))
+        vendor.set(JvmVendorSpec.ADOPTIUM)
+    })
 }
 
 tasks.processResources {
