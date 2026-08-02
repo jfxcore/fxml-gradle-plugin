@@ -21,7 +21,7 @@ class GradleCompatibilityTest {
     @ValueSource(strings = { MINIMUM_GRADLE_VERSION, WRAPPER_GRADLE_VERSION })
     void pluginConfiguresAndExecutesAtSupportedVersionBoundaries(String gradleVersion) throws IOException {
         Path versionProjectDir = projectDir.resolve("gradle-" + gradleVersion);
-        copyFixture("fixtures/non-modular", versionProjectDir);
+        copyFixture("non-modular", versionProjectDir);
 
         var result = runnerWithVersion(versionProjectDir, gradleVersion, "classes").build();
 

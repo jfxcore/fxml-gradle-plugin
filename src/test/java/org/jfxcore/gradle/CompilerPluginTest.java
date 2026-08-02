@@ -17,7 +17,7 @@ public class CompilerPluginTest {
 
     @Test
     void nonModularProject(@TempDir Path projectDir) throws IOException {
-        copyFixture("fixtures/non-modular", projectDir);
+        copyFixture("non-modular", projectDir);
 
         var result = build(projectDir, "classes", "integrationTestClasses");
 
@@ -31,7 +31,7 @@ public class CompilerPluginTest {
 
     @Test
     void modularProject(@TempDir Path projectDir) throws IOException {
-        copyFixture("fixtures/modular", projectDir);
+        copyFixture("modular", projectDir);
 
         var result = build(projectDir, "classes");
 

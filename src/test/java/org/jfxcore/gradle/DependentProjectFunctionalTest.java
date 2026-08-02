@@ -20,7 +20,7 @@ class DependentProjectFunctionalTest {
 
     @Test
     void projectClasspathBuildsDependenciesAndInvalidatesFxmlProcessing() throws IOException {
-        copyFixture("fixtures/multi-project", projectDir);
+        copyFixture("multi-project", projectDir);
 
         var initial = build(projectDir, ":app:classes");
 

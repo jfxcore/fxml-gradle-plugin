@@ -23,7 +23,7 @@ class KotlinKspFunctionalTest {
 
     @Test
     void realKspBuildWorksForEitherPluginApplicationOrder() throws IOException {
-        copyFixture("fixtures/kotlin-ksp", projectDir);
+        copyFixture("kotlin-ksp", projectDir);
 
         BuildResult kspFirst = build(projectDir, "classes", "--info");
         assertSuccessfulKspBuild(kspFirst);
@@ -43,7 +43,7 @@ class KotlinKspFunctionalTest {
 
     @Test
     void kotlinWarningIsConditional() throws IOException {
-        copyFixture("fixtures/kotlin-warning", projectDir);
+        copyFixture("kotlin-warning", projectDir);
 
         BuildResult enabledWithoutKsp = build(projectDir, "help");
         assertTrue(enabledWithoutKsp.getOutput().contains(WARNING));
