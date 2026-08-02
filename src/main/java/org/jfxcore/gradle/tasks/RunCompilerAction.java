@@ -35,8 +35,11 @@ public abstract class RunCompilerAction implements Action<Task> {
             List<Provider<Directory>> intermediateBuildDirs,
             Provider<Directory> classesDir) {
         this.searchPath = searchPath;
-        this.intermediateBuildDirs = new ArrayList<>(intermediateBuildDirs);
         this.classesDir = classesDir;
+
+        // Gradle serializes task action fields when storing the configuration cache. Gradle 8.10.2 cannot encode
+        // the JDK immutable list implementation returned by List.of(), so copy it into a supported list type.
+        this.intermediateBuildDirs = new ArrayList<>(intermediateBuildDirs);
     }
 
     @Override
