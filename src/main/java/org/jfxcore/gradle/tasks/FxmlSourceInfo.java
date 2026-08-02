@@ -8,6 +8,8 @@ import org.gradle.api.file.FileCollection;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.InputFiles;
 import org.gradle.api.tasks.Internal;
+import org.gradle.api.tasks.PathSensitive;
+import org.gradle.api.tasks.PathSensitivity;
 
 public abstract class FxmlSourceInfo {
 
@@ -16,5 +18,6 @@ public abstract class FxmlSourceInfo {
 
     // Do not use @SkipWhenEmpty: the task must run to remove stale outputs when its last FXML file is deleted.
     @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
     public abstract Property<FileCollection> getFxmlFiles();
 }

@@ -17,6 +17,7 @@ import javax.inject.Inject;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -26,22 +27,25 @@ public abstract class RunCompilerAction implements Action<Task> {
 
     private final FileCollection searchPath;
     private final List<Provider<Directory>> intermediateBuildDirs;
-    private final File classesDir;
+    private final Provider<Directory> classesDir;
 
     @Inject
     public RunCompilerAction(
             FileCollection searchPath,
             List<Provider<Directory>> intermediateBuildDirs,
-            File classesDir) {
+            Provider<Directory> classesDir) {
         this.searchPath = searchPath;
-        this.intermediateBuildDirs = intermediateBuildDirs;
         this.classesDir = classesDir;
+
+        // Gradle serializes task action fields when storing the configuration cache. Gradle 8.10.2 cannot encode
+        // the JDK immutable list implementation returned by List.of(), so copy it into a supported list type.
+        this.intermediateBuildDirs = new ArrayList<>(intermediateBuildDirs);
     }
 
     @Override
     public void execute(Task task) {
         Set<Path> searchPathSet = searchPath.getFiles().stream().map(File::toPath).collect(Collectors.toSet());
-        Path classesPath = classesDir.toPath();
+        Path classesPath = classesDir.get().getAsFile().toPath();
 
         try (var compiler = new MarkupCompilerRunner(searchPathSet, new GradleLoggerAdapter(task.getLogger()))) {
             Set<CompilationUnitDescriptorWrapper> compilationUnits = new HashSet<>();

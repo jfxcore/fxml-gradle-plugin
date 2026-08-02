@@ -5,17 +5,15 @@ package org.jfxcore.gradle;
 
 import org.gradle.api.GradleException;
 import org.gradle.api.Project;
+import org.gradle.api.file.Directory;
+import org.gradle.api.provider.Provider;
 import org.gradle.api.tasks.SourceSet;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
-import java.util.Set;
 import java.util.stream.Stream;
 
 public final class PathHelper {
@@ -24,11 +22,9 @@ public final class PathHelper {
 
     private PathHelper() {}
 
-    public static File getGeneratedSourcesDir(Project project, SourceSet sourceSet) {
-        return project.getLayout().getBuildDirectory().get().getAsFile().toPath()
-            .resolve("generated/sources/fxml/java")
-            .resolve(sourceSet.getName())
-            .toFile();
+    public static Provider<Directory> getGeneratedSourcesDirectory(Project project, SourceSet sourceSet) {
+        return project.getLayout().getBuildDirectory()
+            .dir("generated/sources/fxml/java/" + sourceSet.getName());
     }
 
     public static List<Path> getDescriptorFiles(File genSrcDir) {
@@ -37,46 +33,14 @@ public final class PathHelper {
         }
 
         try (Stream<Path> stream = Files.walk(genSrcDir.toPath())) {
-            return stream.filter(path -> fileFilter(path, FXMD_EXTENSION)).toList();
+            return stream
+                .filter(Files::isRegularFile)
+                .filter(path -> fileFilter(path, FXMD_EXTENSION))
+                .toList();
         } catch (IOException ex) {
             throw new GradleException(
                 String.format("Compilation failed with %s: %s", ex.getClass().getName(), ex.getMessage()));
         }
-    }
-
-    public static Map<File, List<File>> getFxmlFilesPerSourceDirectory(Set<File> srcDirs, File genSrcDir,
-                                                                       List<String> fileExtensions) {
-        Map<File, List<File>> result = new HashMap<>();
-        String[] extensions = new String[fileExtensions.size()];
-
-        for (int i = 0; i < fileExtensions.size(); ++i) {
-            if (!fileExtensions.get(i).startsWith(".")) {
-                extensions[i] = "." + fileExtensions.get(i).toLowerCase(Locale.ROOT);
-            } else {
-                extensions[i] = fileExtensions.get(i).toLowerCase(Locale.ROOT);
-            }
-        }
-
-        for (File sourceDir : srcDirs) {
-            // If the current source directory is a generated sources directory, skip it.
-            if (genSrcDir.equals(sourceDir)) {
-                continue;
-            }
-
-            List<File> files = new ArrayList<>();
-            Path sourcePath = sourceDir.toPath();
-
-            try (Stream<Path> stream = Files.isDirectory(sourcePath) ? Files.walk(sourcePath) : Stream.empty()) {
-                stream.filter(path -> fileFilter(path, extensions)).forEach(file -> files.add(file.toFile()));
-            } catch (IOException ex) {
-                throw new GradleException(
-                    String.format("Compilation failed with %s: %s", ex.getClass().getName(), ex.getMessage()));
-            }
-
-            result.put(sourceDir, files);
-        }
-
-        return result;
     }
 
     public static String getFileNameWithoutExtension(Path file) {
