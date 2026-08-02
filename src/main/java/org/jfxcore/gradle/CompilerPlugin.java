@@ -3,6 +3,7 @@
 
 package org.jfxcore.gradle;
 
+import org.gradle.api.GradleException;
 import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.file.ConfigurableFileCollection;
@@ -10,6 +11,7 @@ import org.gradle.api.file.Directory;
 import org.gradle.api.file.FileCollection;
 import org.gradle.api.file.FileTree;
 import org.gradle.api.provider.Provider;
+import org.gradle.api.tasks.PathSensitivity;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
 import org.gradle.api.tasks.compile.JavaCompile;
@@ -22,7 +24,10 @@ import java.io.File;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 
 public final class CompilerPlugin implements Plugin<Project> {
@@ -31,7 +36,7 @@ public final class CompilerPlugin implements Plugin<Project> {
 
     private static final String KOTLIN_PLUGIN_ID = "org.jetbrains.kotlin.jvm";
     private static final String KSP_PLUGIN_ID = "com.google.devtools.ksp";
-    private static final String FXML_EXTENSION = ".fxml";
+    private static final String FXML_EXTENSION = "fxml";
 
     @Override
     public void apply(Project project) {
@@ -56,26 +61,63 @@ public final class CompilerPlugin implements Plugin<Project> {
                 }
             }));
 
-        project.getExtensions()
-            .getByType(SourceSetContainer.class)
-            .configureEach(sourceSet -> configureTasksForSourceSet(
-                project, sourceSet, extension.getAnnotationProcessing(), extension.getSourceFileExtensions()));
+        var javaPluginApplied = new AtomicBoolean();
+
+        // Plugin blocks are ordered, and users should not need to put this plugin after the Java plugin.
+        // Wait for Java support instead of looking up SourceSetContainer eagerly.
+        project.getPluginManager().withPlugin("java", ignored -> {
+            javaPluginApplied.set(true);
+
+            project.getExtensions()
+                .getByType(SourceSetContainer.class)
+                .configureEach(sourceSet -> configureTasksForSourceSet(
+                    project, sourceSet,
+                    extension.getAnnotationProcessing(),
+                    extension.getSourceFileExtensions()));
+        });
+
+        project.afterEvaluate(ignored -> {
+            if (!javaPluginApplied.get()) {
+                throw new GradleException(
+                    "org.jfxcore.fxmlplugin requires the Java plugin to be applied for "
+                    + project.getDisplayName());
+            }
+        });
     }
 
     private void configureTasksForSourceSet(Project project,
                                             SourceSet sourceSet,
                                             Provider<Boolean> annotationProcessing,
                                             Provider<List<String>> sourceFileExtensions) {
+        Provider<Directory> generatedSourcesDir = PathHelper.getGeneratedSourcesDirectory(project, sourceSet);
+
+        // A Gradle file collection can carry task dependencies in addition to file paths. Later, this plugin adds
+        // generatedSourcesDir to the Java source set and marks it as an output of processFxml. Using getAllSource()
+        // directly as an input of processFxml could therefore make Gradle infer that processFxml depends on itself:
+        //     processFxml -> allSource -> generatedSourcesDir -> processFxml
+        //
+        // To fix this, we read the source directories lazily so directories added by later configuration are
+        // included, convert them to plain File values to discard task dependency metadata, and exclude this
+        // task's own output.
+        FileCollection srcDirs = project.files(project.provider(() -> {
+            File generatedSources = generatedSourcesDir.get().getAsFile();
+            ArrayList<File> result = new ArrayList<>(sourceSet.getAllSource().getSrcDirs());
+            result.remove(generatedSources);
+            return result;
+        }));
+
+        Provider<FileCollection> compileClasspath = project.provider(sourceSet::getCompileClasspath);
         ConfigurableFileCollection processorSearchPath = project.getObjects().fileCollection();
-        processorSearchPath.from(sourceSet.getCompileClasspath());
+        processorSearchPath.from(compileClasspath);
 
         ConfigurableFileCollection postCompileSearchPath = project.getObjects().fileCollection();
-        postCompileSearchPath.from(sourceSet.getCompileClasspath());
+        postCompileSearchPath.from(compileClasspath);
         postCompileSearchPath.from(sourceSet.getOutput());
 
-        FileCollection srcDirs = project.files(sourceSet.getAllSource().getSrcDirs());
-        File classesDir = sourceSet.getJava().getClassesDirectory().get().getAsFile();
-        File genSrcDir = PathHelper.getGeneratedSourcesDir(project, sourceSet);
+        Provider<Directory> classesDir = project.getLayout().dir(project.provider(() ->
+            project.getTasks()
+                .named(sourceSet.getCompileJavaTaskName(), JavaCompile.class)
+                .get().getDestinationDirectory().get().getAsFile()));
 
         // The intermediate directories are used by the FXML compiler to store compilation unit descriptors.
         Provider<Directory> intermediateBuildDir = getIntermediateBuildDir(project, sourceSet, "default");
@@ -86,40 +128,17 @@ public final class CompilerPlugin implements Plugin<Project> {
             sourceSet.getTaskName(ProcessFxmlTask.VERB, ProcessFxmlTask.TARGET),
             ProcessFxmlTask.class, task -> {
                 task.getSearchPath().set(processorSearchPath);
-                task.getCompileClasspath().set(sourceSet.getCompileClasspath());
+                task.getCompileClasspath().set(compileClasspath);
+                task.getClassesDir().set(classesDir);
+                task.getGeneratedSourcesDir().set(generatedSourcesDir);
+                task.getIntermediateBuildDir().convention(intermediateBuildDir);
 
                 // Keep the task inputs live so additions and renames are visible when the configuration cache is
                 // reused. Enumerating the directory here would freeze the set of file paths in the cached model.
-                PatternSet fxmlFilePatterns = new PatternSet();
-                fxmlFilePatterns.setCaseSensitive(false);
-
-                List<String> includes = sourceFileExtensions.get().stream()
-                    .map(extension -> extension.startsWith(".") ? extension : "." + extension)
-                    .map(extension -> "**/*" + extension)
-                    .toList();
-
-                if (includes.isEmpty()) {
-                    fxmlFilePatterns.exclude("**/*");
-                } else {
-                    fxmlFilePatterns.include(includes);
-                }
-
-                task.getFxmlSourceInfo().set(srcDirs.getFiles().stream()
-                    .filter(sourceDir -> !genSrcDir.equals(sourceDir))
-                    .map(sourceDir -> {
-                        // Find FXML files lazily so changes are detected when the configuration cache is reused.
-                        // Flatten the FileTree so Gradle tracks only those files. Tracking the source directory
-                        // tree could overlap with outputs of other tasks and cause task-dependency errors.
-                        FileTree fxmlFileTree = project.fileTree(sourceDir).matching(fxmlFilePatterns);
-                        FileCollection fxmlFiles = project.files(fxmlFileTree.getElements());
-                        FxmlSourceInfo sourceInfo = project.getObjects().newInstance(FxmlSourceInfo.class);
-                        sourceInfo.getFxmlFiles().set(fxmlFiles);
-                        sourceInfo.getSourceDir().set(sourceDir);
-                        return sourceInfo;
-                    }).toList());
-                task.getClassesDir().set(classesDir);
-                task.getGeneratedSourcesDir().set(genSrcDir);
-                task.getIntermediateBuildDir().convention(intermediateBuildDir);
+                task.getFxmlSourceInfo().set(
+                    project.provider(() -> srcDirs.getFiles().stream()
+                        .map(sourceDir -> createSourceInfo(project, sourceDir, sourceFileExtensions))
+                        .toList()));
             });
 
         // For each source set, add the corresponding generated sources directory, so it can be
@@ -127,6 +146,13 @@ public final class CompilerPlugin implements Plugin<Project> {
         sourceSet.getJava().srcDir(processFxmlTask.flatMap(ProcessFxmlTask::getGeneratedSourcesDir));
 
         project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class, task -> {
+            // The generated Java stub can remain byte-for-byte identical even though the FXML file was changed.
+            // Include the descriptor contents in JavaCompile's identity so Gradle cannot restore bytecode rewritten
+            // for an older descriptor from the build cache and skip this task's post-compile action.
+            task.getInputs().dir(intermediateBuildDir)
+                .withPropertyName("fxmlDescriptors")
+                .withPathSensitivity(PathSensitivity.RELATIVE);
+
             // Several options need to be specified as Java compiler arguments, as they are required
             // when embedded FXML documents are processed by the markup annotation processor.
             task.getOptions().getCompilerArgumentProviders().add(new CompilerArgumentsProvider(
@@ -166,6 +192,14 @@ public final class CompilerPlugin implements Plugin<Project> {
             String kspConfigurationName = sourceSet.getTaskName("ksp", "");
             addConditionalDependency(project, annotationProcessing, kspConfigurationName, CompilerPlugin::getCompilerJar);
 
+            project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class)
+                .configure(compileJava -> {
+                    compileJava.mustRunAfter(kspTaskName);
+                    compileJava.getInputs().dir(embeddedKotlinIntermediateBuildDir)
+                        .withPropertyName("kspFxmlDescriptors")
+                        .withPathSensitivity(PathSensitivity.RELATIVE);
+                });
+
             project.getTasks().configureEach(task -> {
                 if (task.getName().equals(kspTaskName)) {
                     task.dependsOn(processFxmlTask);
@@ -174,9 +208,6 @@ public final class CompilerPlugin implements Plugin<Project> {
                         CompilerArgumentsProvider.Target.KOTLIN,
                         project.getObjects(), annotationProcessing,
                         srcDirs, processorSearchPath, embeddedKotlinIntermediateBuildDir));
-
-                    project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class)
-                           .configure(compileJava -> compileJava.mustRunAfter(task));
                 }
             });
         });
@@ -184,6 +215,34 @@ public final class CompilerPlugin implements Plugin<Project> {
 
     private Provider<Directory> getIntermediateBuildDir(Project project, SourceSet sourceSet, String name) {
         return project.getLayout().getBuildDirectory().dir("fxml/" + name + "/" + sourceSet.getName());
+    }
+
+    private static FxmlSourceInfo createSourceInfo(
+            Project project, File sourceDir, Provider<List<String>> sourceFileExtensions) {
+        PatternSet patterns = new PatternSet();
+        patterns.include(element ->
+            element.isDirectory() || matchesExtension(
+                element.getName(), sourceFileExtensions.getOrElse(List.of())));
+
+        // FileTree.getElements() deliberately flattens the tree. Gradle then tracks only matching FXML files,
+        // without inferring dependencies from unrelated generated files beneath a source root.
+        FileTree fxmlFileTree = project.fileTree(sourceDir).matching(patterns);
+        FileCollection fxmlFiles = project.files(fxmlFileTree.getElements());
+        FxmlSourceInfo sourceInfo = project.getObjects().newInstance(FxmlSourceInfo.class);
+        sourceInfo.getFxmlFiles().set(fxmlFiles);
+        sourceInfo.getSourceDir().set(sourceDir);
+        return sourceInfo;
+    }
+
+    private static boolean matchesExtension(String fileName, List<String> extensions) {
+        String normalizedFileName = fileName.toLowerCase(Locale.ROOT);
+
+        return extensions.stream()
+            .map(String::trim)
+            .filter(extension -> !extension.isEmpty())
+            .map(extension -> extension.startsWith(".") ? extension : "." + extension)
+            .map(extension -> extension.toLowerCase(Locale.ROOT))
+            .anyMatch(normalizedFileName::endsWith);
     }
 
     private static File getCompilerJar() {
