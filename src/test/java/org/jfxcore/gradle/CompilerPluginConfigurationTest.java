@@ -3,12 +3,17 @@
 
 package org.jfxcore.gradle;
 
+import org.gradle.api.DefaultTask;
 import org.gradle.api.Project;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.FileCollectionDependency;
+import org.gradle.api.file.DirectoryProperty;
+import org.gradle.api.file.SourceDirectorySet;
 import org.gradle.api.internal.project.ProjectInternal;
+import org.gradle.api.tasks.OutputDirectory;
 import org.gradle.api.tasks.SourceSet;
 import org.gradle.api.tasks.SourceSetContainer;
+import org.gradle.api.tasks.TaskProvider;
 import org.gradle.api.tasks.compile.JavaCompile;
 import org.gradle.testfixtures.ProjectBuilder;
 import org.jfxcore.gradle.tasks.FxmlSourceInfo;
@@ -230,6 +235,31 @@ class CompilerPluginConfigurationTest {
     }
 
     @Test
+    void javaCompilerInputsRetainDependenciesFromLateTaskBackedSourceDirectories() {
+        Project project = configuredProject();
+        SourceSet main = sourceSets(project).getByName("main");
+        ProcessFxmlTask processFxml = processTask(project, main);
+        JavaCompile compileJava = javaCompile(project, main);
+        CompilerArgumentsProvider arguments = compilerArguments(compileJava);
+        TaskProvider<GenerateSourcesTask> generateSources = project.getTasks().register(
+            "generateSources", GenerateSourcesTask.class, task -> task.getOutputDirectory().set(
+                project.getLayout().getBuildDirectory().dir("generated/sources/external/main")));
+        SourceDirectorySet generated = project.getObjects().sourceDirectorySet("generated", "generated source");
+
+        generated.srcDir(generateSources.flatMap(GenerateSourcesTask::getOutputDirectory));
+        main.getAllSource().source(generated);
+
+        File generatedInput = generateSources.get().getOutputDirectory().get().getAsFile();
+        File generatedFxml = processFxml.getGeneratedSourcesDir().get().getAsFile();
+
+        assertAll(
+            () -> assertTrue(arguments.getSourceDirs().getFiles().contains(generatedInput)),
+            () -> assertFalse(arguments.getSourceDirs().getFiles().contains(generatedFxml)),
+            () -> assertDependsOn(compileJava, generateSources.get()),
+            () -> assertFalse(processFxml.getTaskDependencies().getDependencies(processFxml).contains(generateSources.get())));
+    }
+
+    @Test
     void wiresMainTestAndCustomJavaCompileTasks() {
         Project project = configuredProject();
         SourceSet custom = sourceSets(project).create("integrationTest");
@@ -378,6 +408,11 @@ class CompilerPluginConfigurationTest {
 
     private static List<String> toList(Iterable<String> values) {
         return StreamSupport.stream(values.spliterator(), false).toList();
+    }
+
+    public abstract static class GenerateSourcesTask extends DefaultTask {
+        @OutputDirectory
+        public abstract DirectoryProperty getOutputDirectory();
     }
 
     private static String allMessages(Throwable throwable) {
