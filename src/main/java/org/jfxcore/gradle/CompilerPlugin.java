@@ -99,12 +99,22 @@ public final class CompilerPlugin implements Plugin<Project> {
         // To fix this, we read the source directories lazily so directories added by later configuration are
         // included, convert them to plain File values to discard task dependency metadata, and exclude this
         // task's own output.
-        FileCollection srcDirs = project.files(project.provider(() -> {
+        FileCollection flattenedSourceDirs = project.files(project.provider(() -> {
             File generatedSources = generatedSourcesDir.get().getAsFile();
             ArrayList<File> result = new ArrayList<>(sourceSet.getAllSource().getSrcDirs());
             result.remove(generatedSources);
             return result;
         }));
+
+        // JavaCompile needs the same live set of source directories, but unlike processFxml it must retain producer
+        // metadata from task-backed source directories. Otherwise, Gradle sees those directories as task inputs
+        // without seeing the corresponding task dependencies. We therefore exclude the generated FXML source
+        // directory from the compiler arguments.
+        //
+        // KSP continues to use flattenedSourceDirs because it adds its own generated sources to allSource;
+        // retaining that producer metadata would make kspKotlin depend on itself.
+        FileCollection javaCompilerSourceDirs = sourceSet.getAllSource().getSourceDirectories()
+            .minus(project.files(generatedSourcesDir));
 
         Provider<FileCollection> compileClasspath = project.provider(sourceSet::getCompileClasspath);
         ConfigurableFileCollection processorSearchPath = project.getObjects().fileCollection();
@@ -136,7 +146,7 @@ public final class CompilerPlugin implements Plugin<Project> {
                 // Keep the task inputs live so additions and renames are visible when the configuration cache is
                 // reused. Enumerating the directory here would freeze the set of file paths in the cached model.
                 task.getFxmlSourceInfo().set(
-                    project.provider(() -> srcDirs.getFiles().stream()
+                    project.provider(() -> flattenedSourceDirs.getFiles().stream()
                         .map(sourceDir -> createSourceInfo(project, sourceDir, sourceFileExtensions))
                         .toList()));
             });
@@ -158,7 +168,7 @@ public final class CompilerPlugin implements Plugin<Project> {
             task.getOptions().getCompilerArgumentProviders().add(new CompilerArgumentsProvider(
                 CompilerArgumentsProvider.Target.JAVA,
                 project.getObjects(), annotationProcessing,
-                srcDirs, processorSearchPath, embeddedIntermediateBuildDir));
+                javaCompilerSourceDirs, processorSearchPath, embeddedIntermediateBuildDir));
 
             // Run the FXML compiler at the end of compileJava's action list. This is important for
             // incremental compilation: Gradle will fingerprint the compiled class files after the
@@ -212,7 +222,7 @@ public final class CompilerPlugin implements Plugin<Project> {
                     addCommandLineArgumentProvider(task, new CompilerArgumentsProvider(
                         CompilerArgumentsProvider.Target.KOTLIN,
                         project.getObjects(), annotationProcessing,
-                        srcDirs, processorSearchPath, embeddedKotlinIntermediateBuildDir));
+                        flattenedSourceDirs, processorSearchPath, embeddedKotlinIntermediateBuildDir));
                 }
             });
         });
