@@ -235,9 +235,10 @@ class CompilerPluginConfigurationTest {
     }
 
     @Test
-    void javaCompilerInputsRetainDependenciesFromLateTaskBackedSourceDirectories() {
+    void compilerSourceRootMetadataDoesNotInferDependenciesFromLateTaskBackedDirectories() {
         Project project = configuredProject();
         SourceSet main = sourceSets(project).getByName("main");
+        project.getExtensions().getByType(CompilerPluginExtension.class).getAnnotationProcessing().set(true);
         ProcessFxmlTask processFxml = processTask(project, main);
         JavaCompile compileJava = javaCompile(project, main);
         CompilerArgumentsProvider arguments = compilerArguments(compileJava);
@@ -254,9 +255,11 @@ class CompilerPluginConfigurationTest {
 
         assertAll(
             () -> assertTrue(arguments.getSourceDirs().getFiles().contains(generatedInput)),
+            () -> assertTrue(arguments.getSourceDirLayout().contains(
+                "project:build/generated/sources/external/main")),
             () -> assertFalse(arguments.getSourceDirs().getFiles().contains(generatedFxml)),
-            () -> assertDependsOn(compileJava, generateSources.get()),
-            () -> assertFalse(processFxml.getTaskDependencies().getDependencies(processFxml).contains(generateSources.get())));
+            () -> assertDoesNotDependOn(compileJava, generateSources.get()),
+            () -> assertDoesNotDependOn(processFxml, generateSources.get()));
     }
 
     @Test
@@ -375,6 +378,11 @@ class CompilerPluginConfigurationTest {
     private static void assertDependsOn(org.gradle.api.Task task, org.gradle.api.Task expectedDependency) {
         assertTrue(task.getTaskDependencies().getDependencies(task).contains(expectedDependency),
             () -> task.getPath() + " does not depend on " + expectedDependency.getPath());
+    }
+
+    private static void assertDoesNotDependOn(org.gradle.api.Task task, org.gradle.api.Task unexpectedDependency) {
+        assertFalse(task.getTaskDependencies().getDependencies(task).contains(unexpectedDependency),
+            () -> task.getPath() + " unexpectedly depends on " + unexpectedDependency.getPath());
     }
 
     private static Set<File> allFxmlFiles(ProcessFxmlTask task) {

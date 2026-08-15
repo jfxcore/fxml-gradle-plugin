@@ -39,7 +39,11 @@ class CompilerArgumentsProviderTest {
             project.files(projectDir.resolve("classes")),
             projectDir.resolve("intermediate"));
 
-        assertEquals(List.of(), asList(provider.asArguments()));
+        assertAll(
+            () -> assertFalse(provider.getEnabled().get()),
+            () -> assertEquals(List.of(), provider.getSourceDirLayout()),
+            () -> assertTrue(provider.getSearchPath().isEmpty()),
+            () -> assertEquals(List.of(), asList(provider.asArguments())));
     }
 
     @Test
@@ -59,6 +63,8 @@ class CompilerArgumentsProviderTest {
             "-Aorg.jfxcore.compiler.processor.searchPath=" + searchEntry.getAbsolutePath(),
             "-Aorg.jfxcore.compiler.processor.intermediateBuildDir=" + intermediateDir.toFile().getAbsolutePath()
         ), asList(provider.asArguments()));
+
+        assertEquals(List.of("project:src/main/java"), provider.getSourceDirLayout());
     }
 
     @Test
@@ -102,6 +108,10 @@ class CompilerArgumentsProviderTest {
             "-Aorg.jfxcore.compiler.processor.searchPath="
                 + firstSearchEntry.getAbsolutePath() + File.pathSeparator + secondSearchEntry.getAbsolutePath(),
             asList(provider.asArguments()).get(1));
+
+        assertEquals(
+            List.of("project:first-source", "project:second-source"),
+            provider.getSourceDirLayout());
     }
 
     @Test
@@ -114,6 +124,7 @@ class CompilerArgumentsProviderTest {
 
         assertSame(sourceDirs, provider.getSourceDirs());
         assertSame(searchPath, provider.getSearchPath());
+        assertTrue(provider.getEnabled().get());
         assertEquals(intermediateDir.toFile(), provider.getIntermediateBuildDir().get().getAsFile());
     }
 
@@ -129,7 +140,7 @@ class CompilerArgumentsProviderTest {
 
         return new CompilerArgumentsProvider(
             target, project.getObjects(), project.provider(() -> enabled),
-            sourceDirs, searchPath, directory);
+            sourceDirs, searchPath, directory, project.getLayout().getProjectDirectory());
     }
 
     private static List<String> asList(Iterable<String> values) {

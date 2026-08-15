@@ -106,16 +106,6 @@ public final class CompilerPlugin implements Plugin<Project> {
             return result;
         }));
 
-        // JavaCompile needs the same live set of source directories, but unlike processFxml it must retain producer
-        // metadata from task-backed source directories. Otherwise, Gradle sees those directories as task inputs
-        // without seeing the corresponding task dependencies. We therefore exclude the generated FXML source
-        // directory from the compiler arguments.
-        //
-        // KSP continues to use flattenedSourceDirs because it adds its own generated sources to allSource;
-        // retaining that producer metadata would make kspKotlin depend on itself.
-        FileCollection javaCompilerSourceDirs = sourceSet.getAllSource().getSourceDirectories()
-            .minus(project.files(generatedSourcesDir));
-
         Provider<FileCollection> compileClasspath = project.provider(sourceSet::getCompileClasspath);
         ConfigurableFileCollection processorSearchPath = project.getObjects().fileCollection();
         processorSearchPath.from(compileClasspath);
@@ -168,7 +158,8 @@ public final class CompilerPlugin implements Plugin<Project> {
             task.getOptions().getCompilerArgumentProviders().add(new CompilerArgumentsProvider(
                 CompilerArgumentsProvider.Target.JAVA,
                 project.getObjects(), annotationProcessing,
-                javaCompilerSourceDirs, processorSearchPath, embeddedIntermediateBuildDir));
+                flattenedSourceDirs, processorSearchPath, embeddedIntermediateBuildDir,
+                project.getLayout().getProjectDirectory()));
 
             // Run the FXML compiler at the end of compileJava's action list. This is important for
             // incremental compilation: Gradle will fingerprint the compiled class files after the
@@ -222,7 +213,8 @@ public final class CompilerPlugin implements Plugin<Project> {
                     addCommandLineArgumentProvider(task, new CompilerArgumentsProvider(
                         CompilerArgumentsProvider.Target.KOTLIN,
                         project.getObjects(), annotationProcessing,
-                        flattenedSourceDirs, processorSearchPath, embeddedKotlinIntermediateBuildDir));
+                        flattenedSourceDirs, processorSearchPath, embeddedKotlinIntermediateBuildDir,
+                        project.getLayout().getProjectDirectory()));
                 }
             });
         });
