@@ -21,7 +21,6 @@ import org.jfxcore.compiler.runner.CompilationUnitWrapper;
 import org.jfxcore.compiler.runner.RunnerException;
 import javax.inject.Inject;
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -101,7 +100,7 @@ public abstract class ProcessFxmlTask extends DefaultTask {
                 // Generate the .fxmd files that are placed in the intermediate build directory.
                 // These files will be picked up by the FXML compiler after the Java compiler has finished, and
                 // contain information that the FXML compiler needs to rewrite the bytecode of the stub classes.
-                writeDescriptor(descriptor, intermediateBuildDir);
+                descriptor.writeTo(intermediateBuildDir);
             }
         } catch (RunnerException ex) {
             throw new GradleException(ex.getMessage());
@@ -110,45 +109,5 @@ public abstract class ProcessFxmlTask extends DefaultTask {
         }
 
         setDidWork(true);
-    }
-
-    /**
-     * CompilationUnitDescriptor.writeTo() uses Properties.store(), which adds a line that contains the current time.
-     * Remove that timestamp so identical FXML produces byte-for-byte identical JavaCompile inputs and can be
-     * restored from Gradle's build cache.
-     * <p>
-     * This method should be removed once CompilationUnitDescriptor is fixed upstream.
-     */
-    private static void writeDescriptor(CompilationUnitDescriptorWrapper descriptor, File directory) throws IOException {
-        descriptor.writeTo(directory);
-
-        Path descriptorFile = descriptor.resolveMarkupFile(directory, ".fxmd").toPath();
-        byte[] contents = Files.readAllBytes(descriptorFile);
-        int firstLineEnd = indexOfLineFeed(contents, 0);
-        int secondLineEnd = indexOfLineFeed(contents, firstLineEnd + 1);
-
-        if (firstLineEnd >= 0
-                && secondLineEnd >= 0
-                && firstLineEnd + 1 < contents.length
-                && contents[firstLineEnd + 1] == '#') {
-            int timestampLength = secondLineEnd - firstLineEnd;
-            byte[] normalized = new byte[contents.length - timestampLength];
-            System.arraycopy(contents, 0, normalized, 0, firstLineEnd + 1);
-            System.arraycopy(
-                contents, secondLineEnd + 1,
-                normalized, firstLineEnd + 1,
-                contents.length - secondLineEnd - 1);
-            Files.write(descriptorFile, normalized);
-        }
-    }
-
-    private static int indexOfLineFeed(byte[] contents, int startIndex) {
-        for (int i = Math.max(0, startIndex); i < contents.length; ++i) {
-            if (contents[i] == '\n') {
-                return i;
-            }
-        }
-
-        return -1;
     }
 }
