@@ -55,6 +55,27 @@ class AnnotationProcessingFunctionalTest {
         assertCompiledClass(compiled("integrationTest", "IntegrationInlineViewBase"));
     }
 
+    @Test
+    void unrelatedGeneratedAllSourceDirectoryRequiresNoProducerWiring() throws IOException {
+        copyFixture("unrelated-generated-source", projectDir);
+
+        var result = build(projectDir, "classes");
+
+        assertOutcome(result, ":generateSources", TaskOutcome.SUCCESS);
+        assertOutcome(result, ":processFxml", TaskOutcome.SUCCESS);
+        assertOutcome(result, ":compileJava", TaskOutcome.SUCCESS);
+
+        Files.writeString(
+            projectDir.resolve("build/generated/sources/external/main/Generated.source"),
+            "externally modified");
+
+        var regenerated = build(projectDir, "classes");
+
+        assertOutcome(regenerated, ":generateSources", TaskOutcome.SUCCESS);
+        assertOutcome(regenerated, ":processFxml", TaskOutcome.UP_TO_DATE);
+        assertOutcome(regenerated, ":compileJava", TaskOutcome.UP_TO_DATE);
+    }
+
     private Path source(String sourceSet, String fileName) {
         return projectDir.resolve("src/" + sourceSet + "/java/test/" + fileName);
     }
