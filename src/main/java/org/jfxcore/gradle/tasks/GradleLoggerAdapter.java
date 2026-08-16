@@ -15,11 +15,11 @@ record GradleLoggerAdapter(Logger logger) implements RunnerLogger {
 
     @Override
     public void info(String message) {
-        logger.info(message);
+        logger.lifecycle(message);
     }
 
     @Override
     public void fine(String message) {
-        logger.lifecycle(message);
+        logger.info(message);
     }
 }
