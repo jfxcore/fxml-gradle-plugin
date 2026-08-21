@@ -104,8 +104,7 @@ class CompilerPluginConfigurationTest {
         assertAll(
             () -> assertEquals(file("out/classes/java/main"), task.getClassesDir().get().getAsFile()),
             () -> assertEquals(file("out/generated/sources/fxml/java/main"), task.getGeneratedSourcesDir().get().getAsFile()),
-            () -> assertEquals(file("out/generated/resources/fxml/main"),
-                task.getGeneratedResourcesDir().get().getAsFile()),
+            () -> assertEquals(file("out/generated/resources/fxml/main"), task.getGeneratedResourcesDir().get().getAsFile()),
             () -> assertEquals(file("out/fxml/default/main"), task.getIntermediateBuildDir().get().getAsFile()),
             () -> assertEquals(file("out/fxml/annotationProcessor/main"), arguments.getIntermediateBuildDir().get().getAsFile()));
     }
