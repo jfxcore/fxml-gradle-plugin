@@ -50,17 +50,22 @@ class PathHelperTest {
     }
 
     @Test
-    void constructsLiveGeneratedSourceDirectoryForNamedSourceSet() {
+    void constructsLiveGeneratedDirectoriesForNamedSourceSet() {
         Project project = ProjectBuilder.builder().withProjectDir(tempDir.toFile()).build();
         project.getPluginManager().apply("java");
         var sourceSet = project.getExtensions().getByType(SourceSetContainer.class).create("integrationTest");
-        var generatedDir = PathHelper.getGeneratedSourcesDirectory(project, sourceSet);
+        var generatedSourcesDir = PathHelper.getGeneratedSourcesDirectory(project, sourceSet);
+        var generatedResourcesDir = PathHelper.getGeneratedResourcesDirectory(project, sourceSet);
 
         project.getLayout().getBuildDirectory().set(project.getLayout().getProjectDirectory().dir("out"));
 
-        assertEquals(
-            tempDir.resolve("out/generated/sources/fxml/java/integrationTest").toFile(),
-            generatedDir.get().getAsFile());
+        assertAll(
+            () -> assertEquals(
+                tempDir.resolve("out/generated/sources/fxml/java/integrationTest").toFile(),
+                generatedSourcesDir.get().getAsFile()),
+            () -> assertEquals(
+                tempDir.resolve("out/generated/resources/fxml/integrationTest").toFile(),
+                generatedResourcesDir.get().getAsFile()));
     }
 
     private Path write(String relativePath) throws IOException {

@@ -18,6 +18,7 @@ import org.gradle.api.tasks.TaskAction;
 import org.jfxcore.compiler.runner.ClassGeneratorRunner;
 import org.jfxcore.compiler.runner.CompilationUnitDescriptorWrapper;
 import org.jfxcore.compiler.runner.CompilationUnitWrapper;
+import org.jfxcore.compiler.runner.EmbeddedResourceWrapper;
 import org.jfxcore.compiler.runner.RunnerException;
 import javax.inject.Inject;
 import java.io.File;
@@ -50,6 +51,9 @@ public abstract class ProcessFxmlTask extends DefaultTask {
     public abstract DirectoryProperty getGeneratedSourcesDir();
 
     @OutputDirectory
+    public abstract DirectoryProperty getGeneratedResourcesDir();
+
+    @OutputDirectory
     public abstract DirectoryProperty getIntermediateBuildDir();
 
     @Inject
@@ -60,14 +64,16 @@ public abstract class ProcessFxmlTask extends DefaultTask {
         Set<Path> searchPath = getSearchPath().get().getFiles().stream().map(File::toPath).collect(Collectors.toSet());
         File intermediateBuildDir = getIntermediateBuildDir().get().getAsFile();
         File genSrcDir = getGeneratedSourcesDir().get().getAsFile();
+        File genResourcesDir = getGeneratedResourcesDir().get().getAsFile();
         File classesDir = getClassesDir().get().getAsFile();
 
         try (var generator = new ClassGeneratorRunner(searchPath, new GradleLoggerAdapter(getLogger()))) {
             // The generator processes the complete set of FXML files on every invocation. Rebuild its dedicated
             // output directories as well, otherwise outputs for removed or renamed FXML files remain discoverable
-            // by the Java compiler and the post-compilation FXML compiler action.
-            getFileSystemOperations().delete(spec -> spec.delete(genSrcDir, intermediateBuildDir));
+            // by downstream compilation and resource-processing tasks.
+            getFileSystemOperations().delete(spec -> spec.delete(genSrcDir, genResourcesDir, intermediateBuildDir));
             Files.createDirectories(genSrcDir.toPath());
+            Files.createDirectories(genResourcesDir.toPath());
             Files.createDirectories(intermediateBuildDir.toPath());
 
             Map<Path, List<Path>> files = getFxmlSourceInfo().get().stream()
@@ -97,6 +103,18 @@ public abstract class ProcessFxmlTask extends DefaultTask {
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING);
 
+                // Materialize resources into their portable, classpath-relative paths.
+                // processResources consumes this directory and copies the files into the source set's runtime output.
+                for (EmbeddedResourceWrapper resource : compilationUnit.embeddedResources()) {
+                    Path resourceFile = resolveGeneratedResource(genResourcesDir.toPath(), resource.logicalPath());
+                    Files.createDirectories(resourceFile.getParent());
+                    Files.write(
+                        resourceFile,
+                        resource.content(),
+                        StandardOpenOption.CREATE,
+                        StandardOpenOption.TRUNCATE_EXISTING);
+                }
+
                 // Generate the .fxmd files that are placed in the intermediate build directory.
                 // These files will be picked up by the FXML compiler after the Java compiler has finished, and
                 // contain information that the FXML compiler needs to rewrite the bytecode of the stub classes.
@@ -104,10 +122,37 @@ public abstract class ProcessFxmlTask extends DefaultTask {
             }
         } catch (RunnerException ex) {
             throw new GradleException(ex.getMessage());
+        } catch (GradleException ex) {
+            throw ex;
         } catch (Throwable ex) {
             throw new GradleException("Internal compiler error", ex);
         }
 
         setDidWork(true);
+    }
+
+    private static Path resolveGeneratedResource(Path outputDirectory, String logicalPath) {
+        if (logicalPath == null || logicalPath.isEmpty()
+                || logicalPath.startsWith("/") || logicalPath.contains("\\")) {
+            throw new GradleException("Invalid generated resource path: " + logicalPath);
+        }
+
+        Path normalizedOutputDirectory = outputDirectory.toAbsolutePath().normalize();
+        Path outputFile = normalizedOutputDirectory;
+
+        for (String component : logicalPath.split("/", -1)) {
+            if (component.isEmpty() || component.equals(".") || component.equals("..")) {
+                throw new GradleException("Invalid generated resource path: " + logicalPath);
+            }
+
+            outputFile = outputFile.resolve(component);
+        }
+
+        outputFile = outputFile.normalize();
+        if (!outputFile.startsWith(normalizedOutputDirectory)) {
+            throw new GradleException("Generated resource escapes its output directory: " + logicalPath);
+        }
+
+        return outputFile;
     }
 }

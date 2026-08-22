@@ -5,6 +5,7 @@ package org.jfxcore.gradle;
 
 import org.gradle.api.DefaultTask;
 import org.gradle.api.Project;
+import org.gradle.api.Task;
 import org.gradle.api.artifacts.Configuration;
 import org.gradle.api.artifacts.FileCollectionDependency;
 import org.gradle.api.file.DirectoryProperty;
@@ -103,6 +104,7 @@ class CompilerPluginConfigurationTest {
         assertAll(
             () -> assertEquals(file("out/classes/java/main"), task.getClassesDir().get().getAsFile()),
             () -> assertEquals(file("out/generated/sources/fxml/java/main"), task.getGeneratedSourcesDir().get().getAsFile()),
+            () -> assertEquals(file("out/generated/resources/fxml/main"), task.getGeneratedResourcesDir().get().getAsFile()),
             () -> assertEquals(file("out/fxml/default/main"), task.getIntermediateBuildDir().get().getAsFile()),
             () -> assertEquals(file("out/fxml/annotationProcessor/main"), arguments.getIntermediateBuildDir().get().getAsFile()));
     }
@@ -173,18 +175,24 @@ class CompilerPluginConfigurationTest {
     }
 
     @Test
-    void excludesGeneratedSourceDirectory() throws IOException {
+    void excludesGeneratedOutputDirectories() throws IOException {
         Project project = configuredProject();
         SourceSet main = sourceSets(project).getByName("main");
         ProcessFxmlTask task = processTask(project, main);
-        Path generated = task.getGeneratedSourcesDir().get().getAsFile().toPath();
+        Path generatedSources = task.getGeneratedSourcesDir().get().getAsFile().toPath();
+        Path generatedResources = task.getGeneratedResourcesDir().get().getAsFile().toPath();
         Path real = write("src/main/java/Real.fxml", "real");
-        Files.createDirectories(generated);
-        Files.writeString(generated.resolve("Generated.fxml"), "generated");
+        Files.createDirectories(generatedSources);
+        Files.createDirectories(generatedResources);
+        Files.writeString(generatedSources.resolve("GeneratedSource.fxml"), "generated");
+        Files.writeString(generatedResources.resolve("GeneratedResource.fxml"), "generated");
 
         assertEquals(Set.of(real.toFile()), allFxmlFiles(task));
-        assertTrue(task.getFxmlSourceInfo().get().stream()
-            .noneMatch(info -> info.getSourceDir().get().getAsFile().equals(generated.toFile())));
+        assertAll(
+            () -> assertTrue(task.getFxmlSourceInfo().get().stream()
+                .noneMatch(info -> info.getSourceDir().get().getAsFile().equals(generatedSources.toFile()))),
+            () -> assertTrue(task.getFxmlSourceInfo().get().stream()
+                .noneMatch(info -> info.getSourceDir().get().getAsFile().equals(generatedResources.toFile()))));
     }
 
     @Test
@@ -369,18 +377,21 @@ class CompilerPluginConfigurationTest {
         assertAll(
             () -> assertEquals(file("build/classes/java/" + name), task.getClassesDir().get().getAsFile()),
             () -> assertEquals(file("build/generated/sources/fxml/java/" + name), task.getGeneratedSourcesDir().get().getAsFile()),
+            () -> assertEquals(file("build/generated/resources/fxml/" + name), task.getGeneratedResourcesDir().get().getAsFile()),
             () -> assertEquals(file("build/fxml/default/" + name), task.getIntermediateBuildDir().get().getAsFile()),
             () -> assertTrue(sourceSet.getJava().getSrcDirs().contains(task.getGeneratedSourcesDir().get().getAsFile())),
+            () -> assertTrue(sourceSet.getResources().getSrcDirs().contains(task.getGeneratedResourcesDir().get().getAsFile())),
+            () -> assertDependsOn(project.getTasks().getByName(sourceSet.getProcessResourcesTaskName()), task),
             () -> assertNotEquals(task.getIntermediateBuildDir().get().getAsFile(),
                 compilerArguments(javaCompile(project, sourceSet)).getIntermediateBuildDir().get().getAsFile()));
     }
 
-    private static void assertDependsOn(org.gradle.api.Task task, org.gradle.api.Task expectedDependency) {
+    private static void assertDependsOn(Task task, Task expectedDependency) {
         assertTrue(task.getTaskDependencies().getDependencies(task).contains(expectedDependency),
             () -> task.getPath() + " does not depend on " + expectedDependency.getPath());
     }
 
-    private static void assertDoesNotDependOn(org.gradle.api.Task task, org.gradle.api.Task unexpectedDependency) {
+    private static void assertDoesNotDependOn(Task task, Task unexpectedDependency) {
         assertFalse(task.getTaskDependencies().getDependencies(task).contains(unexpectedDependency),
             () -> task.getPath() + " unexpectedly depends on " + unexpectedDependency.getPath());
     }

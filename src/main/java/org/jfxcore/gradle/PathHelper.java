@@ -27,6 +27,11 @@ public final class PathHelper {
             .dir("generated/sources/fxml/java/" + sourceSet.getName());
     }
 
+    public static Provider<Directory> getGeneratedResourcesDirectory(Project project, SourceSet sourceSet) {
+        return project.getLayout().getBuildDirectory()
+            .dir("generated/resources/fxml/" + sourceSet.getName());
+    }
+
     public static List<Path> getDescriptorFiles(File genSrcDir) {
         if (!genSrcDir.isDirectory()) {
             return List.of();

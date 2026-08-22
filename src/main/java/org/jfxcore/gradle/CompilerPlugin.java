@@ -90,19 +90,22 @@ public final class CompilerPlugin implements Plugin<Project> {
                                             Provider<Boolean> annotationProcessing,
                                             Provider<List<String>> sourceFileExtensions) {
         Provider<Directory> generatedSourcesDir = PathHelper.getGeneratedSourcesDirectory(project, sourceSet);
+        Provider<Directory> generatedResourcesDir = PathHelper.getGeneratedResourcesDirectory(project, sourceSet);
 
         // A Gradle file collection can carry task dependencies in addition to file paths. Later, this plugin adds
-        // generatedSourcesDir to the Java source set and marks it as an output of processFxml. Using getAllSource()
+        // the generated directories to the source set and marks them as outputs of processFxml. Using getAllSource()
         // directly as an input of processFxml could therefore make Gradle infer that processFxml depends on itself:
-        //     processFxml -> allSource -> generatedSourcesDir -> processFxml
+        //     processFxml -> allSource -> generated output -> processFxml
         //
         // To fix this, we read the source directories lazily so directories added by later configuration are
         // included, convert them to plain File values to discard task dependency metadata, and exclude this
         // task's own output.
         FileCollection flattenedSourceDirs = project.files(project.provider(() -> {
             File generatedSources = generatedSourcesDir.get().getAsFile();
-            ArrayList<File> result = new ArrayList<>(sourceSet.getAllSource().getSrcDirs());
+            File generatedResources = generatedResourcesDir.get().getAsFile();
+            List<File> result = new ArrayList<>(sourceSet.getAllSource().getSrcDirs());
             result.remove(generatedSources);
+            result.remove(generatedResources);
             return result;
         }));
 
@@ -131,6 +134,7 @@ public final class CompilerPlugin implements Plugin<Project> {
                 task.getCompileClasspath().set(compileClasspath);
                 task.getClassesDir().set(classesDir);
                 task.getGeneratedSourcesDir().set(generatedSourcesDir);
+                task.getGeneratedResourcesDir().set(generatedResourcesDir);
                 task.getIntermediateBuildDir().convention(intermediateBuildDir);
 
                 // Keep the task inputs live so additions and renames are visible when the configuration cache is
@@ -144,6 +148,10 @@ public final class CompilerPlugin implements Plugin<Project> {
         // For each source set, add the corresponding generated sources directory, so it can be
         // picked up by the Java compiler.
         sourceSet.getJava().srcDir(processFxmlTask.flatMap(ProcessFxmlTask::getGeneratedSourcesDir));
+
+        // Add generated resources as a task-backed source directory. This lets Gradle infer that processResources
+        // depends on processFxml and includes the files in the source set's runtime output and archives.
+        sourceSet.getResources().srcDir(processFxmlTask.flatMap(ProcessFxmlTask::getGeneratedResourcesDir));
 
         project.getTasks().named(sourceSet.getCompileJavaTaskName(), JavaCompile.class, task -> {
             // The generated Java stub can remain byte-for-byte identical even though the FXML file was changed.

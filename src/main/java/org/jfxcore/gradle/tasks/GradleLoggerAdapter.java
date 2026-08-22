@@ -14,6 +14,11 @@ record GradleLoggerAdapter(Logger logger) implements RunnerLogger {
     }
 
     @Override
+    public void warn(String message) {
+        logger.warn("WARNING: {}", message.replace("\n", "\n         "));
+    }
+
+    @Override
     public void info(String message) {
         logger.lifecycle(message);
     }
